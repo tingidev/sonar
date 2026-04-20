@@ -46,3 +46,14 @@ poetry run sonar serve  # Start MCP server
 - Error handling at boundaries only (DB connections, LLM API calls)
 - Tests in `tests/`, pytest, 80% coverage target
 - Ruff for linting (line-length 100)
+
+## LEARNINGS.md
+
+Maintain `LEARNINGS.md` as a technical learning journal. After implementing each milestone or making a significant technical decision, add a section explaining:
+
+- What was built and why (the design rationale)
+- How it works under the hood (as if explaining to a junior SWE)
+- Key concepts involved (protocols, patterns, libraries)
+- Tradeoffs made and alternatives considered
+
+Write in plain language. Use short code snippets to illustrate. Don't explain what's obvious from reading the code — explain what ISN'T obvious: why this approach, what the protocol expects, how the pieces connect.
