@@ -195,3 +195,80 @@ Token counts and latency are safe: they're aggregate metadata, not content. They
 General principle: mock at the abstraction boundary of the code under test, not one layer below.
 
 ---
+
+## Relationship Mapping
+
+The third real capability. Consumes `list[Table] + list[ForeignKey]` from the Postgres connector and returns one unified `list[Relationship]` — declared FKs plus naming-heuristic inferences. No class, no state, no I/O, no LLM. Pure function in a flat module at `src/sonar/relationships.py`. The non-obvious parts:
+
+### Why flat, not under `engine/` or `connectors/`
+
+The initial scaffold (`src/sonar/engine/relationships.py`) grouped this with LLM work. Wrong placement for what it actually does:
+
+- `engine/` is for LLM-backed inference. This module never calls an LLM — it runs a regex and a dict lookup.
+- `connectors/` is for database I/O. This module never opens a connection — it operates on already-materialised `Table` and `ForeignKey` instances.
+
+Placement should reflect the module's actual dependencies. A flat `src/sonar/relationships.py` has no implied LLM or I/O coupling; readers find exactly what they expect. If it later grows (transitive closure, cardinality analysis, second inference strategy) it can split into a subpackage then. Premature grouping by association ("it's about databases") hides the purity.
+
+### Two decisions deliberately cut under freeze discipline
+
+The first draft had a second inference rule ("any non-PK column whose name matches a single-PK owner in the same schema") and a `confidence: float` field on `Relationship`. Both were cut before the change was proposed. Applying freeze discipline meant asking for each:
+
+- **Who is the next named consumer that will read this?** For rule 2, no roadmap change mentions joins on non-`_id` columns — the roadmap's only concrete example is `user_id → users.id`, which rule 1 covers. For `confidence: float`, with one rule there's one "inferred" population — the field would be constant, redundant with `kind`.
+- **What concrete trigger brings it back?** For rule 2: the first `mcp-server` consumer reporting a measurable gap on non-`_id` join columns (e.g. `status → statuses.status`). For `confidence`: a second rule producing a real gradient, or a cardinality/join-success measurement scoring each edge.
+
+Both decisions are parked in `design.md` Open Questions with revival triggers, not deleted from history. Adding a field later is additive and cheap (JSON consumers read by name; missing fields decode as `None`). Removing a field after consumers depend on it is expensive. Freeze discipline's "minimum interface for the next consumer" rule points at the lower-cost-of-reversal path.
+
+### Declared-blocks-inference as a set, not a dedupe pass
+
+The invariant "inference never overrides a declared edge" has two implementations:
+
+1. **Post-hoc dedupe:** produce both populations, then drop inferred edges whose `(source_schema, source_table, source_column)` appears in declared.
+2. **Pre-filter via a set:** build `_declared_source_set` up front, skip any column in that set during inference iteration.
+
+Option 2 is what the module does. The two produce identical output, but option 2 makes the invariant visible at the point where it matters — the inference loop's first guard clause reads "if this column already has a declared edge, skip." Option 1 would split the invariant across two passes. The set lookup is O(1), so the performance difference is irrelevant; the clarity difference is not.
+
+Notably we don't dedupe by `(source → target)` pair. A declared FK `orders.user_id → users.user_id` and a hypothetical inferred `orders.user_id → users.id` both have the same source column; the column-level block naturally silences the inferred one. Target-level dedupe would introduce edge cases (what if the rule eventually points to a different target than the declared edge?) that we don't need yet.
+
+### Same-schema only, naive plural only
+
+Both decisions are false-positive mitigations, not feature limits:
+
+- **Cross-schema inference is off.** Multi-schema databases often share column names coincidentally (`schema_a.users.id` and `schema_b.users.id` may be unrelated). Declared FKs for deliberate multi-schema relationships are the norm. The false-positive cost is high, so we skip the space entirely.
+- **Only `stem + "s"` pluralisation.** English plural normalisation (`person↔people`, `category↔categories`, `mouse↔mice`) is a rabbit hole with its own library dependencies. We handle `user↔users` and document the miss for the rest. When a real scan misses a pattern we care about, we add an explicit stem-map (hand-curated, ~10 entries), not a library.
+
+The `Revisit when` triggers on both decisions are concrete — the first real-user-schema false-positive measurement and the first observed pluralisation miss. Until then, missing an edge is recoverable (declare the FK); adding a false edge pollutes the graph in ways that are harder to audit.
+
+### Why `_id`-suffix match but accept `id` or `<stem>_id` as PK
+
+The rule has an asymmetry that's worth explaining. Source column: must end in `_id`. Target column: must be named `id` or `<stem>_id`. Why both options on the target?
+
+Two FK-naming conventions dominate real schemas:
+
+1. **Global `id` on every table.** `users.id`, `orders.id`, FKs reference `id`. Most common in Rails/Django-style ORMs.
+2. **Scoped PKs on every table.** `users.user_id`, `orders.order_id`, FKs reference the named PK. Common in hand-rolled schemas and older enterprise designs.
+
+Accepting both matches the two conventions without inventing a third. Rejecting a candidate with any other PK name is deliberate — if the PK is `uuid` or `pk` or `users_pk`, we don't have enough signal to know the column relationship, so we emit nothing rather than guess.
+
+The single-column PK constraint is the other half of the rule. Composite PKs as inference targets are ambiguous (which column is the referent?); declared FKs handle composite correctly because `position_in_unique_constraint` aligns them. Inference doesn't get that alignment signal, so it doesn't try.
+
+### Deterministic ordering as a baseline property
+
+Declared edges come back in input order (which `postgres-connector` already makes deterministic via `ORDER BY` in the SQL). Inferred edges are sorted by `(source_schema, source_table, source_column)`. The combined list is `declared + inferred`.
+
+This is not about the `map_relationships` caller — it's about `context-index` (the next change), which will persist this list to disk. If the order churns between scans, snapshot diffs become noise and the on-disk file looks like it changed when nothing meaningful did. Deterministic output is a free win when the rule is "input order + sort the derived part" — no performance cost, no extra code, reader-friendly tests.
+
+### One INFO log record per call — counts only, no column values
+
+The logging contract mirrors the description engine's: one record per `map_relationships` call on logger `sonar.relationships`, level `INFO`, `extra={"declared": N, "inferred": M, "tables_scanned": T}`. No per-edge logging (would be O(edges) noise), no column values (no PII risk in this module, but the "no row content in logs" contract from the engine is the repo-wide default).
+
+The test (`test_logging_contract`) explicitly scans `record.__dict__` for a string field from the input tables and asserts it doesn't appear. That check is cheap insurance — it catches the failure mode where someone later adds a `"%s"`-style debug message that accidentally formats a `Column` and leaks the name into the record.
+
+### Pure tests, no Docker, no async
+
+`tests/test_relationships.py` is 14 synchronous unit tests built with two small helpers: `_table(schema, name, cols_spec)` and `_fk(...)`. No `pytest-asyncio`, no `conftest` fixtures, no database container. Every scenario in the spec is driven by literal table/FK constructions in the test function itself.
+
+This was worth the explicit "pure unit only" design decision because the Postgres connector's integration tests need the Docker container running and share the session-scoped `connector` fixture. Coupling a pure-function module's tests to a live database would slow the feedback loop for no coverage gain. 100% coverage on `relationships.py` is trivially achievable with constructed inputs — the function is deterministic over its arguments, period.
+
+General principle: the boundary between unit and integration tests should follow the module's actual I/O surface. A pure module gets pure tests, even if the repo mostly uses integration tests elsewhere.
+
+---
