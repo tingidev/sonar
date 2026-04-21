@@ -97,4 +97,37 @@ poetry run sonar serve  # Start MCP server
 
 ## LEARNINGS.md
 
-After each archived change, add a section to `LEARNINGS.md` explaining the non-obvious parts of what was built — as if teaching a junior SWE. Focus on design rationale, protocol expectations, how pieces connect. Not what the code obviously does.
+After each archived change, add a section to `LEARNINGS.md` explaining the capability's architecture and key decisions. The reader (junior SWE, future-you, non-specialist product-minded reviewer) should be able to build a mental model in 2 minutes and drill into detail on demand. Architecture and WHY come before Python mechanics — not the other way round.
+
+### Per-capability template
+
+```
+## <Capability>
+
+### What we're building
+2–3 sentences: what the capability does, where it sits in the pipeline,
+the named downstream consumers.
+
+### Architecture
+The mental model — inputs, outputs, and the 2–3 shape decisions a reader
+must hold to understand everything below. No code-level tricks here.
+
+### Key decisions
+System-level WHY. Each decision named, short rationale, the path not taken.
+Capability splits, data shapes, async/sync choices, interface narrowness,
+cuts under freeze discipline.
+
+### Implementation details
+Python mechanics: row factories, enum tricks, mock strategies, query idioms.
+Dense, skippable on first read, rich on return.
+
+### What goes wrong
+Real failure modes — silent data degradation, invariant drift, integration
+breakage with named downstream consumers. Not generic "if the network is
+down" risks.
+
+### Decisions made
+Bulleted summary for scanning. Each bullet is a decision, not a description.
+```
+
+Keep subsections proportionate. A tiny capability gets a 3-line *Architecture*; a complex one gets two paragraphs. Don't pad. Cross-cutting general principles stay at the top of `LEARNINGS.md` (e.g. the `Project Setup` section), outside per-capability scope.
