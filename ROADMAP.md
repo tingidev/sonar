@@ -1,68 +1,18 @@
-# Phase 1 Roadmap — Sonar MVP (May 2026)
+# Sonar Roadmap
 
-## Milestone 1: Postgres Discovery
+Phase 1 goal: functional end-to-end Postgres-to-MCP context pipeline. Each line below is a planned OpenSpec change — propose with `/opsx:propose <name>` in order.
 
-Connect to a real database and extract full schema.
+## Planned Changes
 
-- Implement `PostgresConnector.discover_tables()` — enumerate schemas, tables, columns, types, PKs
-- Implement `PostgresConnector.discover_relationships()` — extract all FK constraints
-- Implement `PostgresConnector.sample_table()` — fetch N sample rows
-- Test against a real Postgres instance (local Docker or existing DB)
+1. `postgres-schema-discovery` — Connect to Postgres, enumerate tables/columns/PKs, extract FKs, sample rows.
+2. `llm-description-engine` — Thin Anthropic wrapper and per-table semantic description generation.
+3. `relationship-mapping` — FK-derived relationship graph plus naming-heuristic inference (`user_id` to `users.id`).
+4. `context-index` — Persist discovered context (schema + descriptions + relationships) as JSON under `.sonar/`. Wire end-to-end `sonar scan`.
+5. `mcp-server` — Expose 5 tools (discover, describe, relationships, search, sample) over MCP. Wire `sonar serve`.
+6. `release-polish` — README examples, GitHub Actions CI (lint + test), one end-to-end demo.
 
-Depends on: nothing.
+## Rules
 
-## Milestone 2: LLM Description Engine
-
-Feed schema + samples to Haiku, get back semantic descriptions.
-
-- Implement `LLMClient.generate()` — Anthropic Haiku calls
-- Implement `DescriptionEngine.describe_table()` — prompt design for single table
-- Implement `DescriptionEngine.describe_database()` — batch all tables efficiently
-- Design the prompt (what makes a good semantic description?)
-
-Depends on: Milestone 1 (needs real schema + samples as input).
-
-## Milestone 3: Relationship Mapping
-
-FK extraction + naming heuristic produces a relationship graph.
-
-- Implement `RelationshipMapper.map_from_foreign_keys()` — direct FK to relationship
-- Implement `RelationshipMapper.infer_from_naming()` — `user_id` to `users.id` pattern matching
-
-Depends on: Milestone 1.
-
-## Milestone 4: Context Index
-
-Persist the full context (descriptions + relationships) as JSON.
-
-- Define the JSON schema for the context index
-- Implement `ContextStore.save()` / `ContextStore.load()`
-- Wire the CLI `sonar scan` command end-to-end: connect, discover, describe, store
-
-Depends on: Milestones 1-3.
-
-## Milestone 5: MCP Server
-
-Agent connects, queries the context, gets useful answers.
-
-- Implement all 5 tools against the stored context index
-- Wire `sonar serve` to start the MCP server
-- Test with Claude Code as the MCP client
-
-Depends on: Milestone 4.
-
-## Milestone 6: Polish and Ship
-
-Public-ready on GitHub.
-
-- README with real usage examples
-- CI (GitHub Actions: lint + test)
-- One end-to-end demo (scan a sample DB, agent navigates it)
-
-Depends on: Milestone 5.
-
-## Notes
-
-- Milestones 2 and 3 can run in parallel (both depend on 1, not each other)
-- Each milestone gets a planner agent before implementation
-- Timeline: ~4-5 focused sessions
+- One change in flight at a time. Propose, apply, archive — then start the next.
+- Changes 2 and 3 both depend on change 1 but not on each other. Pick whichever unblocks faster.
+- `openspec/specs/` grows one capability at a time. After each archive, the accumulated spec is the source of truth for that capability's behaviour.

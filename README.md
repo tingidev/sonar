@@ -29,6 +29,8 @@ sonar serve
 
 ## Development
 
+Sonar uses spec-driven development via [OpenSpec](https://github.com/Fission-AI/OpenSpec). Feature work starts with a proposal in `openspec/changes/`, not code. See `CLAUDE.md` for the workflow and `ROADMAP.md` for planned changes.
+
 ```bash
 poetry install
 poetry run pytest

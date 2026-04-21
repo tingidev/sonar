@@ -25,3 +25,5 @@ htmlcov/
 *.swo
 
 .DS_Store
+
+.claude/session-state.md
