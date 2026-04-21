@@ -91,3 +91,107 @@ Alternatives considered and rejected:
 The chosen shape makes the resource lifetime visible at the call site, which is exactly where the reader needs it.
 
 ---
+
+## LLM Description Engine
+
+The second real capability. Takes a `Table` + its row samples and returns a `TableDescription` — a structured ontology, not a paragraph. Downstream consumers (relationship inference, MCP context, agents) never see free-form text: they see typed fields they can filter, aggregate, and reason over. The non-obvious parts:
+
+### Two capabilities, not one
+
+`llm-client` and `description-engine` are separate specs in `openspec/specs/`. The temptation was to put the Anthropic SDK usage inside `DescriptionEngine` directly and call it one capability. Rejected. Reasons:
+
+- `llm-client` will be swapped for LiteLLM before public release. If it lived inside `description-engine`, every future LLM-using capability (relationship inference, query planning, MCP tool-use) would need its own provider wiring. With the split, swapping providers is a `MODIFIED Requirements` delta on `llm-client` — no other capability changes.
+- The two concerns evolve differently. `llm-client` wants one stable, narrow surface (`generate(prompt, system) -> str`). `description-engine` wants a rich vocabulary (semantic types, PII risk, grain, domain hints). Keeping them in separate specs keeps each spec's requirement list coherent.
+
+Cost of the split: one extra file and a type annotation (`llm_client: LLMClient`) in `DescriptionEngine.__init__`. Worth it.
+
+### Why `StrEnum`, not `Enum`
+
+Python 3.11 introduced `enum.StrEnum`, which is `str`-and-enum simultaneously. That matters for JSON round-tripping:
+
+```python
+class SemanticType(StrEnum):
+    IDENTIFIER = "identifier"
+    DIMENSION = "dimension"
+    ...
+```
+
+With `StrEnum`, `json.dumps({"semantic_type": SemanticType.IDENTIFIER})` produces `{"semantic_type": "identifier"}` with no custom encoder — because `SemanticType.IDENTIFIER` *is* the string `"identifier"` as far as `json` is concerned. Round-trip parse is `SemanticType(loaded["semantic_type"])`.
+
+Plain `Enum` would need a `default=` encoder hook and an explicit lookup on read. `IntEnum` would force numeric enum values on the wire — readable in code, opaque in JSON. `StrEnum` gives a readable wire format and no encoder boilerplate.
+
+### Structured ontology, not prose
+
+The LLM returns JSON matching a documented schema. We parse it. We construct a frozen `TableDescription`. **Constructing the dataclass is the validation.** If the LLM hallucinates a `semantic_type` of `"widget"`, the `SemanticType("widget")` call raises `ValueError` and we fall into the parse-retry path.
+
+Rejected alternative: ask the LLM for prose and post-hoc classify. Prose is irreducibly lossy. Once a model writes "this column stores customer identifiers but also acts as a secondary sort key for historical queries", the downstream consumer has to re-parse English to get a label back out.
+
+Rejected alternative: Anthropic's tool-use JSON-schema enforcement. It would give us stricter JSON but (a) constrains future provider swap — not every provider has an equivalent — and (b) doubles the test surface, because the SDK call shape for tool-use is different from a plain completion. For Phase 1 the prompt-and-parse path works reliably on Haiku and costs one retry in the occasional bad case.
+
+### `SemanticType` is four values, deliberately
+
+The first draft had eight (identifier, foreign_key, dimension, measure, timestamp, status, description, other). Trimmed to four (identifier, dimension, measure, other). Reasoning:
+
+- `FOREIGN_KEY` is **deterministic** from postgres metadata. The `relationship-mapping` capability will know which columns are FKs from the connector's output; letting the LLM guess invites wrong answers we already have a correct answer for.
+- `TIMESTAMP` is recoverable from the SQL `data_type` (`timestamp`, `timestamptz`, `date`, `time`). Encoding it as a semantic type duplicates information already on the `Column`.
+- `STATUS` and `DESCRIPTION` are subtypes of dimension. A status column (`order_status`) and a description column (`product_notes`) are both categorical/descriptive attributes; splitting them buys nothing a consumer can act on.
+
+**Extending the enum later is easy; deprecating a value is not.** A downstream consumer that branched on `STATUS` breaks silently when we collapse it into `DIMENSION`. Starting with the smaller set and adding additively when concrete need surfaces is the lower-risk path.
+
+`OTHER` is the escape hatch. If a column genuinely doesn't fit identifier/dimension/measure — say a raw JSONB blob — the LLM can still classify it without guessing wrong.
+
+### `generate(prompt, system) -> str` is deliberately narrow
+
+The `LLMClient` interface has one method, two inputs, one output. No streaming, no tool-use, no multi-turn, no token-count return. The narrower the interface, the easier the LiteLLM swap.
+
+Every LLM provider exposes a one-shot chat completion. Streaming and tool-use are where provider APIs diverge sharply. By declaring the interface at the lowest common denominator, the LiteLLM swap becomes: write `LiteLLMClient(LLMClient)`, update one import. No caller code changes.
+
+The cost: if a future capability genuinely needs streaming (e.g. showing partial progress in an agent UI), we widen the interface then. The widening lives in the `llm-client` spec as a `MODIFIED Requirements` delta; it doesn't ripple outward.
+
+### SDK handles retries, we don't
+
+`anthropic.AsyncAnthropic(max_retries=2)` ships with retry-with-exponential-backoff on 429s and 5xx. We accept that and do not wrap it in our own retry loop. The one retry we **do** implement is at a different layer: the parse-retry in `DescriptionEngine`, which re-prompts the model with a "return only JSON" reminder when the response body doesn't parse.
+
+Separating the two is the right shape. HTTP retries are a transport concern — the SDK knows best. Parse-retries are a product concern — we own the prompt shape, so we own the reminder text.
+
+### No API key in Sonar code
+
+`AnthropicClient.__init__` takes an optional `LLMConfig` and nothing else. The API key is read from `ANTHROPIC_API_KEY` by the Anthropic SDK. We never pass `api_key=` to `AsyncAnthropic`, never read the env var ourselves, never log it, never accept it via our constructor. The test `test_constructor_rejects_api_key_kwarg` guards this: passing `api_key="sk-test"` must raise `TypeError`.
+
+Rationale: secret handling is a compliance concern. The fewer code paths that touch the key, the smaller the audit surface. Making the SDK the single reader means rotating the key is an env-var change, not a Sonar config change.
+
+### Bounded concurrency via `asyncio.Semaphore`, not a thread pool or rate-limiter
+
+`describe_database` fans out over N tables. Naïve `asyncio.gather` would fire all N requests at once, hit Anthropic's rate limit, and the SDK would serialise them via 429-retries anyway — wasting wall-clock on bounces. A proper rate-limiter (token bucket) is overkill for Phase 1 and requires knowing the provider's actual limits. A thread pool is wrong shape: every worker would just await an async call.
+
+`asyncio.Semaphore(config.max_concurrent_calls)` — default 5 — is the minimum viable bound. Each `describe_table` coroutine `async with`s the semaphore before making the request. Peak in-flight calls is provably ≤ N. When real usage reveals the actual ceiling, we revisit.
+
+The test (`test_concurrency_bound`) instruments a `FakeLLMClient` with a concurrency counter and asserts the peak never exceeds the cap. It catches the failure mode where someone later reaches for `asyncio.gather` without the semaphore and thinks the tests still pass.
+
+### `return_exceptions=True` is a product decision
+
+`asyncio.gather(..., return_exceptions=True)` means "don't cancel siblings on the first failure; return exceptions as return values instead." For a 40-table scan where one table's LLM response is malformed twice in a row, this is the right default — the other 39 descriptions are useful. The failing table lands in the result dict with value `None`.
+
+The alternative (fail-fast: default `gather` behaviour) would throw away 39 successful calls on one edge-case failure. The caller can always filter Nones if they want stricter semantics; they can't recover work that was cancelled.
+
+The return type `dict[tuple[str, str], TableDescription | None]` signals the partial-success shape directly — a caller pattern-matching on the optional is a type-checker-enforced reminder to handle the None case.
+
+### Logging at the boundary, never payloads
+
+Two loggers: `sonar.engine.llm` (one INFO record per LLM call with model/tokens/latency) and `sonar.engine.describe` (one INFO record per `describe_table` with schema/table/columns_count/outcome). **Neither logs prompt or response content.**
+
+Row samples can contain PII. Prompts contain the samples. Responses describe the samples. Logging any of them creates a PII leak at a place no consumer is looking — the operator's log aggregator. The tests explicitly verify this: the `caplog`-based assertions look for the sample values in every string field of every emitted record and fail if they appear.
+
+Token counts and latency are safe: they're aggregate metadata, not content. They're what an operator actually wants on a dashboard.
+
+### `FakeLLMClient` beats `AsyncMock` for the engine tests
+
+`tests/test_llm_client.py` patches `anthropic.AsyncAnthropic` with `AsyncMock` — appropriate, because those tests are about the SDK call shape. `tests/test_description_engine.py` uses a hand-rolled `FakeLLMClient(LLMClient)` instead. Why:
+
+- **The engine's contract is against `LLMClient`, not against Anthropic.** Mocking Anthropic in engine tests couples the test to a detail the engine shouldn't know about.
+- **Concurrency tracking needs real state.** `FakeLLMClient.peak_concurrent` is updated under a real `asyncio.Lock` as coroutines enter and leave `generate`. `AsyncMock` has no equivalent — patching in a side-effect that locks, increments, sleeps, and decrements is more code than the fake.
+- **Per-prompt response selection is cleaner.** The partial-failure test needs to return malformed JSON for `public.t2` and valid JSON for the other four tables. A `response_for` callable on the fake expresses that in four lines. An `AsyncMock` `side_effect` callable would do the same but with less readable plumbing.
+
+General principle: mock at the abstraction boundary of the code under test, not one layer below.
+
+---
