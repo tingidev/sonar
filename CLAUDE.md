@@ -16,11 +16,11 @@ Planned changes live in `ROADMAP.md`. One change in flight at a time.
 
 ### Per-feature lifecycle
 
-Each feature goes from idea to tested implementation via four skills. They map to four phases; do not skip or overlap them.
+Each feature goes from idea to tested implementation via five skills plus two manual gates. Do not skip or overlap phases.
 
 ```
-/opsx:explore  →  /opsx:propose  →  /opsx:apply  →  /opsx:archive
-  (think)         (artifacts)       (build+test)     (merge+move)
+/opsx:explore  →  /opsx:propose  →  /opsx:apply  →  /opsx:audit  →  /opsx:archive
+  (think)         (artifacts)       (build+test)     (review)         (merge+move)
 ```
 
 1. **`/opsx:explore <topic>`** — optional thinking phase. Read-only stance: discuss, diagram, compare options, investigate the codebase. May edit OpenSpec artifacts if the user asks; must not write application code. Skip when the idea is already crisp.
@@ -35,15 +35,21 @@ Each feature goes from idea to tested implementation via four skills. They map t
 
 3. **`/opsx:apply <name>`** — reads the artifacts, works `tasks.md` top-to-bottom, flips `- [ ]` → `- [x]` as each task completes. Writes tests alongside code. Pauses (does not guess) when a task is ambiguous, a blocker appears, or implementation reveals a design issue — in which case update `design.md` / spec delta first, then resume.
 
-4. **Verify** — `poetry run pytest` passes and coverage stays above 80% before archiving. This is our gate, not the skill's.
+4. **Verify** — `poetry run pytest` passes and coverage stays above 80%. Manual gate, not a skill.
 
-5. **`/opsx:archive <name>`** — checks that all artifacts and tasks are done (warns if not), merges `openspec/changes/<name>/specs/<cap>/spec.md` into the accumulated `openspec/specs/<cap>/spec.md`, and moves the change directory to `openspec/changes/archive/YYYY-MM-DD-<name>/`.
+5. **`/opsx:audit <name>`** — independent reviewer pass on the in-flight change. Two lenses only: **security at boundaries** (secrets, input validation, injection surface, logging discipline) and **spec-code fit** (does the implementation match what `specs/<cap>/spec.md` actually says?). Style/quality/correctness lenses are skipped — ruff + pytest + coverage already cover that territory.
 
-6. **Post-archive** — add a `LEARNINGS.md` section for this change (see below), then propose the next roadmap change.
+   **Advisory, not gating.** Findings come with severity (low/medium/high/critical) *and* confidence (low/medium/high). Address `high`-severity findings with `high` confidence before archive; lower-confidence findings are triaged and either fixed, deferred (written as dated TODOs on the relevant design.md Open Questions), or dismissed. One pass only — no re-review loops. Reviewer agents have a known availability bias (finding issues is their job), so "clean bill + short report" is a valid outcome; pressure for more findings is how theatre starts.
+
+6. **`/opsx:archive <name>`** — checks that all artifacts and tasks are done (warns if not), merges `openspec/changes/<name>/specs/<cap>/spec.md` into the accumulated `openspec/specs/<cap>/spec.md`, and moves the change directory to `openspec/changes/archive/YYYY-MM-DD-<name>/`.
+
+7. **Post-archive** — add a `LEARNINGS.md` section for this change (see below), then propose the next roadmap change.
+
+**Cross-cutting audit** — separately, every few changes, run an ad-hoc reviewer pass over the whole shipped codebase (not a per-change scope). Consistency drift and abstraction mismatch across capabilities only become visible at this granularity — the per-change audit can't catch them. Invoke manually via the `reviewer` subagent with a cross-cutting prompt; not a slash command.
 
 ### Skill-free fallback
 
-The four slash commands wrap the `openspec` CLI. When learning or when a skill misbehaves, the same workflow runs manually: `openspec new change <name>`, `openspec status --change <name> --json`, `openspec instructions <artifact-id> --change <name> --json`, `openspec validate <name>`, and a plain `mv` into `openspec/changes/archive/`.
+Four of the five slash commands wrap the `openspec` CLI. `/opsx:audit` instead invokes the `reviewer` subagent with a pinned scope (security-at-boundaries + spec-code fit) — no `openspec` CLI equivalent. When learning or when a skill misbehaves, the rest of the workflow runs manually: `openspec new change <name>`, `openspec status --change <name> --json`, `openspec instructions <artifact-id> --change <name> --json`, `openspec validate <name>`, and a plain `mv` into `openspec/changes/archive/`.
 
 ### Freeze discipline
 
