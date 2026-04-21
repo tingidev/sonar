@@ -81,7 +81,15 @@ def _parse_table_description(
                 f"LLM returned {len(cols_payload)} columns, expected {len(columns)}"
             )
         parsed_columns: list[ColumnDescription] = []
-        for source_col, col_payload in zip(columns, cols_payload, strict=True):
+        for i, (source_col, col_payload) in enumerate(
+            zip(columns, cols_payload, strict=True)
+        ):
+            payload_name = col_payload["name"]
+            if payload_name != source_col.name:
+                raise ValueError(
+                    f"LLM returned column name '{payload_name}' at position {i}, "
+                    f"expected '{source_col.name}'"
+                )
             parsed_columns.append(
                 ColumnDescription(
                     name=source_col.name,

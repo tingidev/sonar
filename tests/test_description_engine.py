@@ -295,6 +295,46 @@ class TestParseRetry:
             await engine.describe_table(table, _users_samples())
 
     @pytest.mark.asyncio
+    async def test_column_name_mismatch_raises(self) -> None:
+        table = _users_table()
+        swapped = json.dumps(
+            {
+                "description": "d",
+                "grain": "g",
+                "domain_hints": [],
+                "columns": [
+                    {
+                        "name": "email",
+                        "description": "d",
+                        "semantic_type": "dimension",
+                        "pii_risk": "low",
+                        "confidence": 0.5,
+                    },
+                    {
+                        "name": "user_id",
+                        "description": "d",
+                        "semantic_type": "identifier",
+                        "pii_risk": "none",
+                        "confidence": 0.5,
+                    },
+                    {
+                        "name": "created_at",
+                        "description": "d",
+                        "semantic_type": "dimension",
+                        "pii_risk": "none",
+                        "confidence": 0.5,
+                    },
+                ],
+                "confidence": 0.5,
+            }
+        )
+        client = FakeLLMClient(responses=[swapped, swapped])
+        engine = DescriptionEngine(client)
+
+        with pytest.raises(DescriptionParseError):
+            await engine.describe_table(table, _users_samples())
+
+    @pytest.mark.asyncio
     async def test_valid_first_call_no_retry(self) -> None:
         table = _users_table()
         client = FakeLLMClient(responses=[_valid_payload_for(table)])
