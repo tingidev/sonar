@@ -214,3 +214,94 @@ The third real capability. Consumes `list[Table]` + `list[ForeignKey]` from the 
 - Pure unit tests — no Docker, no async, no fixtures.
 
 ---
+
+## Context Index
+
+### What we're building
+
+The fourth real capability — the pipeline terminus. Composes the three prior capability outputs (`Table`s, `TableDescription`s, `Relationship`s) into a single frozen `ContextBundle` and writes it as four per-capability JSON files under `.sonar/`. Also hosts `sonar scan <dsn>` — the first end-to-end CLI command, wiring connector → sampling → description engine → relationship mapper → bundle writer in a single linear orchestration. Downstream consumer is `mcp-server` (#5), which will parse `.sonar/` files directly at server startup and serve tools against the in-memory bundle without reconnecting to the database.
+
+### Architecture
+
+- **Inputs:** a DSN (CLI) and, at the library layer, a pre-built `ContextBundle`.
+- **Outputs:** four files — `meta.json`, `tables.json`, `descriptions.json`, `relationships.json` — under a bundle directory (default `.sonar/`).
+- **Shape decisions:**
+  1. **Thin composition in memory, per-capability files on disk.** `ContextBundle` holds three parallel collections plus a `BundleMeta` header — no pre-joined "fat" rows. The on-disk layout mirrors the capability boundaries, not the in-memory shape. Each file can evolve independently under one bundle-wide `schema_version`.
+  2. **Bundle-wide version, governed by `meta.json`.** One integer governs all four files together; `ContextStore.read()` raises `BundleVersionError` on mismatch. No migration logic in v1 — the field exists so the first breaking change doesn't have to retrofit one.
+  3. **`sonar scan` owns orchestration directly in `cli.py`.** No `Pipeline` / `Orchestrator` class. One caller, linear data flow, no reuse surface — an abstraction here would be pure ceremony.
+
+### Key decisions
+
+- **Thin `ContextBundle`, not a pre-joined "fat" row type.** Rejected: an `EnrichedTable` merging `Column` + `ColumnDescription` fields. Fat forces inventing merge rules when either side is missing (a table with no description, a description with columns the table doesn't have — both legitimate Phase 1 states), and it duplicates the upstream dataclasses' fields. Thin keeps the three capability shapes visible in the composed type, and `mcp-server`'s `describe` tool joins on `(schema, name)` at call time — trivial at a few hundred tables. When the join profile ever shows up, the fat shape can be added without touching the thin one. **Widening is additive; narrowing a shipped "fat" type is a migration.**
+
+- **Per-capability files, not one blob.** Three reasons for the split: (1) re-runs on a stable schema churn `descriptions.json` (LLM drift) but leave `tables.json` byte-identical — a signal lost in a single-file layout; (2) the future `sonar scan --only descriptions` lands with a natural seam already in place; (3) on-disk grain matches the code's capability boundaries, so a reader of the repo and a reader of `.sonar/` build the same mental model. Relationships are inherently cross-table so a per-*table* layout would be a hybrid anyway, which weakens that alternative. `meta.json` carries the single version integer that governs all four together.
+
+- **`schema_version: 1` from day one.** Adding the field retroactively means the first breaking shape change also introduces a version field *and* a migration tool in the same commit. One integer now defers exactly that pain. Read-side behaviour is loud and dumb — unsupported versions raise `BundleVersionError`. Migration logic lands the day a non-additive change does, not speculatively.
+
+- **No row samples on disk.** Samples flow connector → engine in memory and are discarded. Rejected: caching 5 rows per table in the bundle for an "offline describe" affordance. The price is writing raw row data — routinely PII — to a file the operator then stores, backs up, and potentially syncs off-host. Keeping samples off disk is the same posture `description-engine` already takes with its log discipline — **PII-off-disk is a pipeline-wide first principle, not a per-module policy.** `mcp-server`'s `sample` tool will open a live DB connection per call instead.
+
+- **Failed descriptions persist as JSON `null`, not omitted.** `descriptions.json` keys *every* table in `tables.json`; the LLM engine's partial-success dict (`TableDescription | None`) round-trips through the file. This preserves the distinction between "scanned but failed" (key present, value null) and "never scanned" (key absent) — the latter being an integrity violation in v1, raised on read. Omitting failures would collapse two legitimate states into one absence and hide real partial success from downstream consumers. Enforced both at write time (encoder emits `null`) and at read time (`_check_integrity` compares the `tables` key set against the `descriptions` key set and raises on asymmetric difference).
+
+- **`"<schema>.<name>"` dict-key encoding, anchored by an upstream guard.** JSON has no tuple-key support; the in-memory `dict[tuple[str, str], ...]` has to be serialised as a string-keyed object. The naïve `"."` separator would be ambiguous if either identifier contained a dot — so we closed that ambiguity upstream: `postgres-connector.discover_tables` and `discover_relationships` now raise `ValueError` if any returned schema or table name contains a literal `"."`. That spec-delta is the cost of the cheap encoding. Alternative considered: a JSON array of `{"schema": ..., "name": ..., "description": ...}` objects — more verbose, less grep-friendly, same robustness. Rejected because operator databases effectively never use dotted identifiers (`pg_catalog` and `information_schema` are dot-free throughout), and surfacing a clear connector-level error is preferable to a silently-corrupted bundle on read. **Reversibility is cheap because the guard makes the invariant loud — a future operator hitting the restriction gets an explicit error, not a mangled file.**
+
+- **Explicit decoders on read, not generic `from_dict`.** Every dataclass has its own hand-rolled `_decode_table`, `_decode_column`, `_decode_table_description`, `_decode_column_description`, `_decode_relationship`. Rejected alternatives: `dataclasses.asdict` inverse via introspection, or a generic `from_dict` helper. Both collapse the I/O boundary into a single magic function that hides where each field actually lives. Explicit decoders are more verbose, but the cost is paid once per dataclass and buys direct control: `StrEnum` fields land in the enum constructor (`SemanticType(...)`, `PIIRisk(...)`, `RelationshipKind(...)`), nested tuples are reconstructed explicitly, and every field's source is grep-visible. When a dataclass grows a field, the decoder change is local and obvious.
+
+- **`ContextStore.read()` returns `None` on missing bundle, raises on corruption.** Parked during design (D-Open-Question) and settled during implementation: a missing bundle directory or missing `meta.json` returns `None` (clean "nothing to read" signal for `mcp-server`); a `meta.json` with the wrong shape or wrong version raises; an orphan or missing description key raises. The rule is "silence for absence, loud for damage." A single caller (`mcp-server`) with a clear contract means the optional return is cheap to pattern-match; collapsing absence and damage into a single exception would force `try/except` sprinkled everywhere the caller cares about "bundle present?"
+
+- **Sync file I/O around an async pipeline.** `ContextStore.write` / `.read` are plain sync functions. `sonar scan` runs the async pipeline inside `asyncio.run(_scan_pipeline(dsn))` and then calls `store.write(bundle)` synchronously once, outside the loop. Rejected: `aiofiles` for consistency. Phase 1 bundle size is O(100 KB); write latency is irrelevant; sync file I/O is one less moving part and keeps the async surface scoped to things that actually benefit from it (DB queries, LLM calls).
+
+- **DSN sanitisation via `format_database_label`, with safe fallback.** `BundleMeta.database` must never carry a password. The helper parses the DSN with `urlparse`, keeps `[user@]host[:port][/dbname]`, and explicitly omits the password component. Pathological DSNs — passwords containing `@` or `/` that confuse `urlparse` — legitimately fall back to the literal `"unknown"`. The contract is "password never leaks to disk," not "host always survives parsing"; relaxing the second guarantee keeps the first absolute. This same helper is reused at the CLI error boundary (see next decision).
+
+- **Error messages at the CLI boundary scrub the raw DSN.** `psycopg.OperationalError`'s `str()` embeds the full connection string including the password. Printing the exception directly to stderr on connect failure would leak credentials into terminals, CI logs, and shell history. `cli._run_scan` catches the exception, computes the sanitised label once, and `str(exc).replace(dsn, label)` before printing. Exception type name is preserved for diagnostic value. An integration test uses a distinctive password (`hunter2`) and asserts neither the password nor the full DSN appears in captured stderr — regression-proofs the scrub. This fix landed as post-audit hardening, not initial implementation.
+
+- **`sonar.cli.AnthropicClient` is the documented monkeypatch seam (D11).** `AnthropicClient` is imported at module scope in `cli.py` — not from inside the `scan` function body — precisely because the integration test patches `sonar.cli.AnthropicClient` with a `FakeLLMClient` factory. Rejected alternatives: env-flag switch (`SONAR_LLM=fake`) leaks a test code path into production; constructor-injection factory adds a module-level seam whose only consumer is the test. The monkeypatch approach keeps the production import graph unchanged and documents the seam as a convention rather than an interface. Speculative? No — the alternatives would have been.
+
+### Implementation details
+
+- **`_json_default` hook for `StrEnum`.** `json.dump` uses `default=_json_default`, which returns `obj.value` for `StrEnum` instances. Three enums ship through the bundle — `SemanticType`, `PIIRisk`, `RelationshipKind` — and none need per-type encoder logic because `StrEnum` *is* `str` at wire level. Decode is symmetric: each enum's constructor (`SemanticType("identifier")`) reconstructs the typed value from its string wire form.
+
+- **Integrity check computes symmetric difference.** `_check_integrity(tables, descriptions)` builds two sets and raises on either side of the difference: orphan keys (description for a table that isn't in `tables.json`) are one exception; missing keys (table without a description entry at all) are another. Both exceptions enumerate the offending keys in sorted order so the error message is actionable. Sort order in the message aids operator debugging — the test suite round-trips a deliberately-corrupted bundle and pins the format.
+
+- **`_bundle_log_extra` emits four integer counts and nothing else.** Logger is `sonar.index`; records carry `tables`, `descriptions_present`, `descriptions_null`, `relationships` — all `int`. No DSN, no description text, no column names, no file paths. The test explicitly scans every log record's `__dict__` for a specific description string from the test fixture and asserts it doesn't appear. Same posture as `description-engine` (no prompts / responses in logs) and `relationship-mapping` (no column values in logs). **Logging discipline is capability-agnostic: if it's not a count, it doesn't go in the record.**
+
+- **Fake LLM client parses the prompt itself.** `tests/test_scan.py`'s `_FakeLLMClient` extracts `Table: <schema>.<name>` and the columns block from the prompt body using two regexes, then synthesises a valid JSON payload whose column names match the prompt. No advance knowledge of the Docker fixture's schema. The fake is completely self-contained — swapping the fixture doesn't require updating the test. Failure injection is a `fail={("public", "orders")}` set; when the prompt's table matches, the fake returns a deliberately malformed string that flows through the engine's existing partial-failure path.
+
+- **Integration tests are `def`, not `async def`.** pytest-asyncio's auto mode wraps every `async def` test in its own event loop; `main()` itself calls `asyncio.run(_scan_pipeline(...))`; nesting `asyncio.run` inside a running loop raises `RuntimeError: asyncio.run() cannot be called from a running event loop`. Keeping the test functions synchronous lets `main()` own its loop. The fake LLM's `generate` stays `async def` because the engine calls it via `await` — only the outer test function is sync.
+
+- **`Path(bundle_dir).mkdir(parents=True, exist_ok=True)` on every write.** The directory is created lazily on first write. Operators point `--bundle-dir` at a path that doesn't exist yet (including nested parents); the store handles it rather than forcing an explicit `mkdir` at the CLI layer. `exist_ok=True` makes the operation idempotent — re-scans overwrite cleanly.
+
+- **Write does not delete stray files; overwrite is scoped to the four expected filenames.** If someone manually drops `junk.json` into `.sonar/`, it survives a `write(bundle)`. Phase 1 deliberately avoids filesystem-level transactions — single-writer, operator-run, `sonar scan` re-runs on crash. The test `test_second_write_overwrites_first` pins the four-file contract but not directory-level cleanup, matching the intent.
+
+### What goes wrong
+
+- **Non-atomic four-file write leaves a half-written bundle on crash.** `ContextStore.write` writes `meta.json`, then `tables.json`, then `descriptions.json`, then `relationships.json`. If the process dies mid-write, the bundle directory contains a new `meta.json` claiming `schema_version: 1` but stale (or missing) companion files. `ContextStore.read()` will either surface a `BundleIntegrityError` (orphan or missing keys) or, worse, silently succeed with a stale file whose contents predate the current `meta.json`. Mitigation in Phase 1: operator re-runs `sonar scan`. Revisit trigger: an always-on writer (daemon, scheduled scanner) — at that point move to write-to-temp-then-rename or a SQLite-backed store.
+
+- **LLM drift churns `descriptions.json` across re-runs, even on a frozen schema.** Intentional — the file is the single-source-of-truth for what the model said this time. But it means `git diff` on a tracked bundle is always noisy; operators committing bundles will see rolling churn. The `.gitignore` entry for `.sonar/` is the opinionated default; operators who need a shared bundle opt in explicitly and accept the diff noise.
+
+- **`schema_version` bump is a flag day for `mcp-server`.** The bundle-wide version means a bump affects all four files simultaneously — readers either understand the whole new format or they don't. When the first non-additive change lands, `mcp-server` has to ship a compatible reader in the same release. Mitigation per D3: keep additive changes strictly additive (new optional fields on existing dataclasses don't bump the version); only bump when a required field changes shape or meaning.
+
+- **Pathological DSN loses its host label.** `format_database_label` falls back to `"unknown"` when `urlparse` can't cleanly extract `host` — which happens for DSNs with `@` or `/` embedded in the password. The `BundleMeta.database` field then carries `"unknown"` instead of `"user@host:5432/db"`. Operator-facing cost: a slightly less useful provenance label. Security benefit: the password cannot leak through a clever parsing edge case. The trade-off is deliberate and pinned by the `test_password_never_appears_even_for_odd_input` test.
+
+- **Dotted-identifier databases fail loudly at the connector boundary.** A schema or table named `foo.bar` causes `discover_tables` / `discover_relationships` to raise `ValueError`. `sonar scan` catches at the CLI layer and exits non-zero with a single stderr line. An operator hits this the first time they run sonar against a schema that legitimately uses dots. Revisit trigger per D7: the first such report — at which point either relax the guard and switch to the array-of-objects encoding (format migration, `schema_version` bump) or document the restriction as permanent.
+
+- **`ContextStore.read()` returning `None` for "directory missing" conflates two states.** Missing `.sonar/` directory and empty-but-existing `.sonar/` directory without a `meta.json` both return `None`. Callers can't distinguish "never scanned" from "bundle partially deleted." In Phase 1 `mcp-server` doesn't need to — "no bundle, run `sonar scan` first" is the same error message either way. When a second caller arrives that does care, splitting into two return values (or an exception for the empty-dir case) is an additive change.
+
+### Decisions made
+
+- Thin `ContextBundle` with parallel collections; no pre-joined "fat" shape.
+- Four per-capability JSON files on disk under one bundle-wide `schema_version`.
+- `schema_version: 1` from day one; read-side raises `BundleVersionError` on mismatch; no migration logic in v1.
+- No row samples persisted — PII-off-disk posture across the whole pipeline.
+- Failed descriptions persist as JSON `null`; orphan / missing keys raise `BundleIntegrityError` on read.
+- `"<schema>.<name>"` key encoding, made unambiguous by a new `ValueError` guard in `postgres-connector`.
+- Explicit per-dataclass decoders on read — no generic `from_dict`.
+- `read()` returns `None` for missing bundle, raises for damaged bundle.
+- Sync `ContextStore` I/O around the async scan pipeline.
+- `format_database_label` strips passwords; falls back to `"unknown"` on pathological input.
+- CLI error path scrubs raw DSN out of exception messages before printing to stderr.
+- `sonar.cli.AnthropicClient` imported at module scope as the documented monkeypatch seam (D11).
+- Integration tests run `def`, not `async def`, to let `main()` own its own event loop.
+- Count-only INFO logging on `sonar.index`; no prompts, descriptions, DSNs, or sample values.
+- `sonar scan` orchestration lives directly in `cli.py`; no `Pipeline` class.
+
+---
