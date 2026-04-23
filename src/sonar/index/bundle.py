@@ -43,7 +43,7 @@ class ContextBundle:
     relationships: tuple[Relationship, ...]
 
 
-def _format_database_label(dsn: str) -> str:
+def format_database_label(dsn: str) -> str:
     """Extract `[user@]host[:port][/dbname]` from a psycopg DSN; strip any password.
 
     Falls back to the literal string `"unknown"` on unparseable input so the

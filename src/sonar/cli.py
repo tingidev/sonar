@@ -15,7 +15,7 @@ from sonar.index.bundle import (
     SCHEMA_VERSION,
     BundleMeta,
     ContextBundle,
-    _format_database_label,
+    format_database_label,
 )
 from sonar.index.store import ContextStore
 from sonar.relationships import map_relationships
@@ -66,10 +66,15 @@ def _run_scan(args: argparse.Namespace) -> int:
 
     bundle_dir = Path(args.bundle_dir)
 
+    label = format_database_label(dsn)
     try:
         bundle = asyncio.run(_scan_pipeline(dsn))
     except Exception as exc:  # noqa: BLE001 - CLI boundary
-        print(f"scan failed: {exc}", file=sys.stderr)
+        # psycopg's OperationalError embeds the full connection string in its
+        # str(), which would leak a password if one was in the DSN. Scrub the
+        # DSN out of the rendered message before it reaches stderr.
+        message = f"{type(exc).__name__}: {exc}".replace(dsn, label)
+        print(f"scan failed: {message}", file=sys.stderr)
         return 1
 
     ContextStore(bundle_dir).write(bundle)
@@ -102,7 +107,7 @@ async def _scan_pipeline(dsn: str) -> ContextBundle:
         schema_version=SCHEMA_VERSION,
         generated_at=generated_at,
         connector="postgres",
-        database=_format_database_label(dsn),
+        database=format_database_label(dsn),
     )
 
     return ContextBundle(

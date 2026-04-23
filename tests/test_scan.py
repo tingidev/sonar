@@ -149,12 +149,16 @@ class TestScanCLIFailures:
         _install_fake_client(monkeypatch)
 
         bundle_dir = tmp_path / "bundle"
-        unreachable = "postgresql://sonar:sonar@127.0.0.1:1/sonar_test"
+        unreachable = "postgresql://sonar:hunter2@127.0.0.1:1/sonar_test"
         exit_code = main(["scan", unreachable, "--bundle-dir", str(bundle_dir)])
 
         assert exit_code == 1
         captured = capsys.readouterr()
         assert captured.err.strip().startswith("scan failed:")
+        # The full DSN (and especially the password) must never land on stderr,
+        # even though psycopg embeds the connection string in its error message.
+        assert "hunter2" not in captured.err
+        assert unreachable not in captured.err
         assert not bundle_dir.exists()
 
     def test_missing_dsn_exits_nonzero(

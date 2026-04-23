@@ -17,7 +17,7 @@ from sonar.index.bundle import (
     SCHEMA_VERSION,
     BundleMeta,
     ContextBundle,
-    _format_database_label,
+    format_database_label,
 )
 from sonar.relationships import Relationship, RelationshipKind
 
@@ -156,32 +156,32 @@ class TestContextBundle:
 
 class TestFormatDatabaseLabel:
     def test_password_is_stripped(self) -> None:
-        label = _format_database_label(
+        label = format_database_label(
             "postgresql://sonar:secret@localhost:5433/sonar_test"
         )
         assert "secret" not in label
         assert label == "sonar@localhost:5433/sonar_test"
 
     def test_no_password(self) -> None:
-        label = _format_database_label(
+        label = format_database_label(
             "postgresql://sonar@localhost:5433/sonar_test"
         )
         assert label == "sonar@localhost:5433/sonar_test"
 
     def test_bare_hostname_dsn(self) -> None:
-        label = _format_database_label("postgresql://localhost/mydb")
+        label = format_database_label("postgresql://localhost/mydb")
         assert label == "localhost/mydb"
 
     def test_unparseable_falls_back_to_unknown(self) -> None:
-        assert _format_database_label("") == "unknown"
-        assert _format_database_label("not a dsn at all") == "unknown"
-        assert _format_database_label("localhost") == "unknown"
+        assert format_database_label("") == "unknown"
+        assert format_database_label("not a dsn at all") == "unknown"
+        assert format_database_label("localhost") == "unknown"
 
     def test_password_never_appears_even_for_odd_input(self) -> None:
         # Pathological: password contains delimiters. Either the label strips the
         # password and keeps the host, or it falls back to the safe placeholder.
         # Either is acceptable; leaking the password is not.
-        label = _format_database_label(
+        label = format_database_label(
             "postgresql://u:p@ss:wor/d@localhost:5433/db"
         )
         assert "p@ss:wor/d" not in label
