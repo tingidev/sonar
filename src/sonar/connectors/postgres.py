@@ -69,35 +69,7 @@ class PostgresConnector:
             await cur.execute(_sql.TABLES_AND_COLUMNS, {"schemas": resolved})
             rows = await cur.fetchall()
 
-        tables: list[Table] = []
-        current_key: tuple[str, str] | None = None
-        current_columns: list[Column] = []
-
-        for row in rows:
-            key = (row["schema"], row["table_name"])
-            if key != current_key:
-                if current_key is not None:
-                    tables.append(
-                        Table(
-                            schema=current_key[0],
-                            name=current_key[1],
-                            columns=tuple(current_columns),
-                        )
-                    )
-                current_key = key
-                current_columns = []
-            current_columns.append(_column_from_row(row))
-
-        if current_key is not None:
-            tables.append(
-                Table(
-                    schema=current_key[0],
-                    name=current_key[1],
-                    columns=tuple(current_columns),
-                )
-            )
-
-        return tables
+        return _tables_from_rows(rows)
 
     async def discover_relationships(self) -> list[ForeignKey]:
         if self._conn is None:
@@ -107,17 +79,7 @@ class PostgresConnector:
             await cur.execute(_sql.FOREIGN_KEYS)
             rows = await cur.fetchall()
 
-        return [
-            ForeignKey(
-                source_schema=row["source_schema"],
-                source_table=row["source_table"],
-                source_column=row["source_column"],
-                target_schema=row["target_schema"],
-                target_table=row["target_table"],
-                target_column=row["target_column"],
-            )
-            for row in rows
-        ]
+        return _foreign_keys_from_rows(rows)
 
     async def sample_table(self, schema: str, table: str, limit: int = 5) -> list[dict]:
         if self._conn is None:
@@ -147,6 +109,69 @@ class PostgresConnector:
             await cur.execute(query)
             rows = await cur.fetchall()
         return [r[0] for r in rows]
+
+
+def _reject_dotted_identifier(kind: str, value: str) -> None:
+    if "." in value:
+        raise ValueError(
+            f"{kind} identifier contains '.': {value!r}. "
+            "Sonar requires identifiers without '.' so the context-index bundle's "
+            "on-disk key encoding stays unambiguous."
+        )
+
+
+def _tables_from_rows(rows: list[dict]) -> list[Table]:
+    tables: list[Table] = []
+    current_key: tuple[str, str] | None = None
+    current_columns: list[Column] = []
+
+    for row in rows:
+        _reject_dotted_identifier("schema", row["schema"])
+        _reject_dotted_identifier("table", row["table_name"])
+        key = (row["schema"], row["table_name"])
+        if key != current_key:
+            if current_key is not None:
+                tables.append(
+                    Table(
+                        schema=current_key[0],
+                        name=current_key[1],
+                        columns=tuple(current_columns),
+                    )
+                )
+            current_key = key
+            current_columns = []
+        current_columns.append(_column_from_row(row))
+
+    if current_key is not None:
+        tables.append(
+            Table(
+                schema=current_key[0],
+                name=current_key[1],
+                columns=tuple(current_columns),
+            )
+        )
+
+    return tables
+
+
+def _foreign_keys_from_rows(rows: list[dict]) -> list[ForeignKey]:
+    result: list[ForeignKey] = []
+    for row in rows:
+        _reject_dotted_identifier("source schema", row["source_schema"])
+        _reject_dotted_identifier("source table", row["source_table"])
+        _reject_dotted_identifier("target schema", row["target_schema"])
+        _reject_dotted_identifier("target table", row["target_table"])
+        result.append(
+            ForeignKey(
+                source_schema=row["source_schema"],
+                source_table=row["source_table"],
+                source_column=row["source_column"],
+                target_schema=row["target_schema"],
+                target_table=row["target_table"],
+                target_column=row["target_column"],
+            )
+        )
+    return result
 
 
 def _serialize_row(row: dict) -> dict:

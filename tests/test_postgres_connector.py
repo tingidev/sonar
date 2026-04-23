@@ -5,7 +5,13 @@ import uuid
 
 import pytest
 
-from sonar.connectors.postgres import PostgresConnector, _coerce_value, _serialize_row
+from sonar.connectors.postgres import (
+    PostgresConnector,
+    _coerce_value,
+    _foreign_keys_from_rows,
+    _serialize_row,
+    _tables_from_rows,
+)
 
 
 class TestValueCoercion:
@@ -39,6 +45,83 @@ class TestValueCoercion:
         assert original == copy
         assert result is not original
         assert result["id"] == str(original["id"])
+
+
+def _table_row(
+    schema: str = "public",
+    table_name: str = "users",
+    column_name: str = "id",
+) -> dict:
+    return {
+        "schema": schema,
+        "table_name": table_name,
+        "column_name": column_name,
+        "data_type": "integer",
+        "udt_name": "int4",
+        "is_nullable": "NO",
+        "is_primary_key": True,
+        "column_default": None,
+    }
+
+
+def _fk_row(
+    source_schema: str = "public",
+    source_table: str = "orders",
+    target_schema: str = "public",
+    target_table: str = "users",
+) -> dict:
+    return {
+        "source_schema": source_schema,
+        "source_table": source_table,
+        "source_column": "user_id",
+        "target_schema": target_schema,
+        "target_table": target_table,
+        "target_column": "user_id",
+    }
+
+
+class TestDottedIdentifierRejection:
+    def test_dotted_schema_in_tables_raises(self):
+        rows = [_table_row(schema="weird.schema", table_name="users")]
+        with pytest.raises(ValueError, match=r"weird\.schema"):
+            _tables_from_rows(rows)
+
+    def test_dotted_table_in_tables_raises(self):
+        rows = [_table_row(schema="public", table_name="weird.table")]
+        with pytest.raises(ValueError, match=r"weird\.table"):
+            _tables_from_rows(rows)
+
+    def test_undotted_tables_parse(self):
+        rows = [_table_row()]
+        tables = _tables_from_rows(rows)
+        assert len(tables) == 1
+        assert tables[0].schema == "public"
+        assert tables[0].name == "users"
+
+    def test_dotted_source_schema_in_fks_raises(self):
+        rows = [_fk_row(source_schema="a.b")]
+        with pytest.raises(ValueError, match=r"a\.b"):
+            _foreign_keys_from_rows(rows)
+
+    def test_dotted_source_table_in_fks_raises(self):
+        rows = [_fk_row(source_table="a.b")]
+        with pytest.raises(ValueError, match=r"a\.b"):
+            _foreign_keys_from_rows(rows)
+
+    def test_dotted_target_schema_in_fks_raises(self):
+        rows = [_fk_row(target_schema="a.b")]
+        with pytest.raises(ValueError, match=r"a\.b"):
+            _foreign_keys_from_rows(rows)
+
+    def test_dotted_target_table_in_fks_raises(self):
+        rows = [_fk_row(target_table="a.b")]
+        with pytest.raises(ValueError, match=r"a\.b"):
+            _foreign_keys_from_rows(rows)
+
+    def test_undotted_fks_parse(self):
+        rows = [_fk_row()]
+        fks = _foreign_keys_from_rows(rows)
+        assert len(fks) == 1
 
 
 class TestConnectionLifecycle:
