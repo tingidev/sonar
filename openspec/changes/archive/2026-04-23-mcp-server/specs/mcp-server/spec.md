@@ -129,12 +129,12 @@ The `sample` tool SHALL enforce a server-side maximum row count. A call requesti
 
 #### Scenario: Request within cap
 
-- **WHEN** an agent calls `sample(schema, table, limit=10)` and the cap is 50
+- **WHEN** an agent calls `sample(schema, table, limit=10)` and the cap is 20
 - **THEN** the tool returns up to 10 rows
 
 #### Scenario: Request above cap is rejected
 
-- **WHEN** an agent calls `sample(schema, table, limit=1000)` and the cap is 50
+- **WHEN** an agent calls `sample(schema, table, limit=1000)` and the cap is 20
 - **THEN** the tool returns an error stating the cap; no query is executed with limit 1000
 
 #### Scenario: No limit argument

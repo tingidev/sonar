@@ -20,12 +20,12 @@ Sonar's value to agents is realised only when the discovered context is reachabl
 - `mcp-server`: Expose a Sonar bundle (and optionally a live DB) as MCP tools over stdio. Owns the tool surface, conditional registration, sample-call safeguards (LIMIT cap, PII stripping, identifier quoting, audit logging), and bundle-loading failure semantics.
 
 ### Modified Capabilities
-<!-- None. context-index and postgres-connector contracts are consumed read-only; nothing about their requirements changes. -->
+- `description-engine`: Extend the `PIIRisk` enum with a fourth member `MEDIUM` so the classifier can express the "plausible PII" middle bucket that mcp-server's default sample-stripping policy treats as protected. Touches the enum definition, the classifier prompt, and the accumulated spec — an additive, forward-compatible change (existing `none`/`low`/`high` bundles still parse).
 
 ## Impact
 
 - **New code**: `src/sonar/mcp/server.py`, `src/sonar/mcp/tools/bundle_tools.py`, `src/sonar/mcp/tools/sample_tool.py`, `src/sonar/mcp/audit.py`, `src/sonar/_dsn.py`.
-- **Modified code**: `src/sonar/cli.py` (flesh out `serve` subcommand; import `scrub_dsn` from `sonar/_dsn.py` and replace the inline scrub in `_run_scan`).
+- **Modified code**: `src/sonar/cli.py` (flesh out `serve` subcommand; import `scrub_dsn` from `sonar/_dsn.py` and replace the inline scrub in `_run_scan`); `src/sonar/engine/describe.py` (add `PIIRisk.MEDIUM`); `src/sonar/engine/_prompts.py` (document the `medium` bucket in the classifier system prompt and the expected-output example).
 - **Dependencies**: Zero new top-level deps. `mcp ^1.0` is already pinned.
 - **Downstream**: `.sonar/` bundle shape (`context-index` capability) becomes the MCP server's consumed contract — any future bundle shape change needs an MCP compatibility check.
 - **Security surface**: First code path in Sonar that holds a DSN across an agent-facing boundary. All credential-containment decisions (DSN stays in process, scrubbing on error paths, audit logging) apply here first and set the pattern for future connectors.
