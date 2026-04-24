@@ -29,16 +29,22 @@ labels, text fields, timestamps used to filter/group by)
 (amount, count, total, duration)
   - "other"       - anything that does not fit the three above
 - pii_risk: one of
-  - "high"  - directly personally identifying (full name, email, phone, \
+  - "high"    - directly personally identifying (full name, email, phone, \
 national ID, credit card, physical address, date of birth)
-  - "low"   - quasi-identifying or sensitive in combination (city, age, \
-user-agent, IP, free-text comments, device ID)
-  - "none"  - no PII signal (surrogate IDs, enums, prices, counts, \
+  - "medium"  - plausibly identifying when combined with other fields, or \
+data the classifier cannot rule out as PII with confidence (free-text \
+comments likely to contain names, precise location, device fingerprint, \
+IP address, birth year + postal code)
+  - "low"     - quasi-identifying or sensitive in combination but weak on \
+its own (city, age bracket, coarse timestamp, user-agent family)
+  - "none"    - no PII signal (surrogate IDs, enums, prices, counts, \
 foreign-key surrogates)
 
 Base PII classification on the column name first, then on the shape of the \
 sample values. Prefer "none" when unsure for surrogate numeric IDs; prefer \
-"high" when the column name or sample values match classic PII tells.
+"high" when the column name or sample values match classic PII tells. Use \
+"medium" when evidence is ambiguous and you cannot confidently rule PII \
+out — downstream consumers may treat "medium" as protected alongside "high".
 
 Mark confidence honestly in the 0.0-1.0 range. A value below 0.5 means you \
 genuinely could not tell from the evidence given. Do not pad confidence.
@@ -68,7 +74,7 @@ def build_table_prompt(table: Table, samples: list[dict]) -> str:
       "name": "<column name, in the same order as given>",
       "description": "One sentence in business terms.",
       "semantic_type": "identifier | dimension | measure | other",
-      "pii_risk": "none | low | high",
+      "pii_risk": "none | low | medium | high",
       "confidence": 0.0
     }
   ],

@@ -32,6 +32,7 @@ class SemanticType(StrEnum):
 class PIIRisk(StrEnum):
     NONE = "none"
     LOW = "low"
+    MEDIUM = "medium"
     HIGH = "high"
 
 

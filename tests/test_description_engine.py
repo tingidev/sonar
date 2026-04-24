@@ -171,6 +171,21 @@ class TestDataclasses:
         assert SemanticType(loaded["semantic_type"]) is SemanticType.MEASURE
         assert PIIRisk(loaded["pii_risk"]) is PIIRisk.HIGH
 
+    def test_pii_risk_medium_roundtrip(self) -> None:
+        assert PIIRisk("medium") is PIIRisk.MEDIUM
+        assert PIIRisk.MEDIUM.value == "medium"
+        column = ColumnDescription(
+            name="city",
+            description="City of residence",
+            semantic_type=SemanticType.DIMENSION,
+            pii_risk=PIIRisk.MEDIUM,
+            confidence=0.6,
+        )
+        serialised = json.dumps(dataclasses.asdict(column), default=str)
+        loaded = json.loads(serialised)
+        assert loaded["pii_risk"] == "medium"
+        assert PIIRisk(loaded["pii_risk"]) is PIIRisk.MEDIUM
+
 
 # ---------------------------------------------------------------------------
 # describe_table — happy path
@@ -208,7 +223,7 @@ class TestDescribeTable:
         assert "a@x.com" in prompt
         for value in ("identifier", "dimension", "measure", "other"):
             assert value in prompt
-        for value in ("none", "low", "high"):
+        for value in ("none", "low", "medium", "high"):
             assert value in prompt
 
     @pytest.mark.asyncio
@@ -232,6 +247,26 @@ class TestDescribeTable:
         assert by_name["email"].pii_risk is PIIRisk.HIGH
         assert by_name["ssn"].pii_risk is PIIRisk.HIGH
         assert by_name["country"].pii_risk is PIIRisk.LOW
+
+    @pytest.mark.asyncio
+    async def test_pii_classification_medium(self) -> None:
+        table = Table(
+            schema="public",
+            name="people",
+            columns=(
+                Column("city", "text", False, False),
+                Column("ip_address", "inet", False, False),
+            ),
+        )
+        pii = {"city": "medium", "ip_address": "medium"}
+        client = FakeLLMClient(responses=[_valid_payload_for(table, pii=pii)])
+        engine = DescriptionEngine(client)
+
+        result = await engine.describe_table(table, [])
+
+        by_name = {c.name: c for c in result.columns}
+        assert by_name["city"].pii_risk is PIIRisk.MEDIUM
+        assert by_name["ip_address"].pii_risk is PIIRisk.MEDIUM
 
 
 # ---------------------------------------------------------------------------

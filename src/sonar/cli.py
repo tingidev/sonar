@@ -8,16 +8,20 @@ import datetime as _datetime
 import sys
 from pathlib import Path
 
+from sonar._dsn import scrub_dsn
 from sonar.connectors.postgres import PostgresConnector
 from sonar.engine.describe import DescriptionEngine
 from sonar.engine.llm import AnthropicClient
 from sonar.index.bundle import (
     SCHEMA_VERSION,
+    BundleIntegrityError,
     BundleMeta,
+    BundleVersionError,
     ContextBundle,
     format_database_label,
 )
 from sonar.index.store import ContextStore
+from sonar.mcp.server import build_server, run_stdio
 from sonar.relationships import map_relationships
 
 
@@ -45,15 +49,39 @@ def main(argv: list[str] | None = None) -> int:
         help="Directory where the context bundle is written (default: .sonar/)",
     )
 
-    subparsers.add_parser("serve", help="Start the MCP server")
+    serve_parser = subparsers.add_parser("serve", help="Start the MCP server over stdio")
+    serve_parser.add_argument(
+        "dsn",
+        nargs="?",
+        default=None,
+        help=(
+            "Database connection string (psycopg DSN). When omitted, the server "
+            "runs in bundle-only mode and the sample tool is not registered."
+        ),
+    )
+    serve_parser.add_argument(
+        "--bundle-dir",
+        dest="bundle_dir",
+        default=".sonar",
+        help="Directory containing the context bundle (default: .sonar/)",
+    )
+    serve_parser.add_argument(
+        "--allow-pii",
+        dest="allow_pii",
+        action="store_true",
+        help=(
+            "Disable default PII-stripping in sample results. Only use in "
+            "operator-authorised environments; every sample call is audited "
+            "regardless of this flag."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
     if args.command == "scan":
         return _run_scan(args)
     if args.command == "serve":
-        print("Starting Sonar MCP server...")
-        return 0
+        return _run_serve(args)
     parser.print_help()
     return 0
 
@@ -66,14 +94,13 @@ def _run_scan(args: argparse.Namespace) -> int:
 
     bundle_dir = Path(args.bundle_dir)
 
-    label = format_database_label(dsn)
     try:
         bundle = asyncio.run(_scan_pipeline(dsn))
     except Exception as exc:  # noqa: BLE001 - CLI boundary
         # psycopg's OperationalError embeds the full connection string in its
         # str(), which would leak a password if one was in the DSN. Scrub the
         # DSN out of the rendered message before it reaches stderr.
-        message = f"{type(exc).__name__}: {exc}".replace(dsn, label)
+        message = scrub_dsn(f"{type(exc).__name__}: {exc}", dsn)
         print(f"scan failed: {message}", file=sys.stderr)
         return 1
 
@@ -116,6 +143,34 @@ async def _scan_pipeline(dsn: str) -> ContextBundle:
         descriptions=descriptions,
         relationships=tuple(relationships),
     )
+
+
+def _run_serve(args: argparse.Namespace) -> int:
+    bundle_dir = Path(args.bundle_dir)
+    dsn = args.dsn
+
+    try:
+        bundle = ContextStore(bundle_dir).read()
+    except (BundleIntegrityError, BundleVersionError) as exc:
+        message = scrub_dsn(f"{type(exc).__name__}: {exc}", dsn)
+        print(f"serve failed: {message}", file=sys.stderr)
+        return 1
+
+    if bundle is None:
+        print(
+            f"serve: no bundle found at {bundle_dir}; run `sonar scan` first",
+            file=sys.stderr,
+        )
+        return 1
+
+    app = build_server(bundle, dsn, allow_pii=bool(args.allow_pii))
+    try:
+        run_stdio(app)
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        message = scrub_dsn(f"{type(exc).__name__}: {exc}", dsn)
+        print(f"serve failed: {message}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

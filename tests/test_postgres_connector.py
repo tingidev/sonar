@@ -201,7 +201,9 @@ class TestSchemaIntrospection:
 class TestForeignKeyExtraction:
     async def test_discover_relationships_finds_all_fks(self, connector):
         fks = await connector.discover_relationships()
-        pairs = {(fk.source_table, fk.source_column, fk.target_table, fk.target_column) for fk in fks}
+        pairs = {
+            (fk.source_table, fk.source_column, fk.target_table, fk.target_column) for fk in fks
+        }
 
         expected = {
             ("addresses", "user_id", "users", "user_id"),
