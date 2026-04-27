@@ -442,6 +442,47 @@ class TestDescribeDatabase:
         assert result == {}
         assert client.calls == []
 
+    @pytest.mark.asyncio
+    async def test_provider_error_retried_with_backoff(self) -> None:
+        table = _tiny_table(0)
+        valid = _valid_payload_for(table)
+        client = FakeLLMClient(responses=[
+            RuntimeError("rate limited"),
+            valid,
+        ])
+        engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
+
+        result = await engine.describe_database([table], {(table.schema, table.name): []})
+
+        assert isinstance(result[("public", "t0")], TableDescription)
+        assert len(client.calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_provider_error_exhausts_retries(self) -> None:
+        table = _tiny_table(0)
+        client = FakeLLMClient(responses=[
+            RuntimeError("rate limited"),
+            RuntimeError("rate limited"),
+            RuntimeError("rate limited"),
+        ])
+        engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
+
+        result = await engine.describe_database([table], {(table.schema, table.name): []})
+
+        assert result[("public", "t0")] is None
+        assert len(client.calls) == 3
+
+    @pytest.mark.asyncio
+    async def test_parse_error_not_retried_at_database_level(self) -> None:
+        table = _tiny_table(0)
+        client = FakeLLMClient(responses=["not json", "still not json"])
+        engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
+
+        result = await engine.describe_database([table], {(table.schema, table.name): []})
+
+        assert result[("public", "t0")] is None
+        assert len(client.calls) == 2
+
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -480,6 +521,38 @@ class TestLogging:
         records = [r for r in caplog.records if r.name == "sonar.engine.describe"]
         assert len(records) == 1
         assert records[0].outcome == "parse_retry"
+
+    @pytest.mark.asyncio
+    async def test_provider_error_outcome(self, caplog: pytest.LogCaptureFixture) -> None:
+        table = _users_table()
+        client = FakeLLMClient(responses=[RuntimeError("API key invalid")])
+        engine = DescriptionEngine(client)
+
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="sonar.engine.describe"):
+            with pytest.raises(RuntimeError, match="API key invalid"):
+                await engine.describe_table(table, _users_samples())
+
+        records = [r for r in caplog.records if r.name == "sonar.engine.describe"]
+        assert len(records) == 1
+        assert records[0].outcome == "provider_error"
+
+    @pytest.mark.asyncio
+    async def test_provider_error_on_retry_call(self, caplog: pytest.LogCaptureFixture) -> None:
+        table = _users_table()
+        client = FakeLLMClient(
+            responses=["not json", RuntimeError("rate limited")]
+        )
+        engine = DescriptionEngine(client)
+
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="sonar.engine.describe"):
+            with pytest.raises(RuntimeError, match="rate limited"):
+                await engine.describe_table(table, _users_samples())
+
+        records = [r for r in caplog.records if r.name == "sonar.engine.describe"]
+        assert len(records) == 1
+        assert records[0].outcome == "provider_error"
 
     @pytest.mark.asyncio
     async def test_failed_outcome(self, caplog: pytest.LogCaptureFixture) -> None:

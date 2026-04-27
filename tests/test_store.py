@@ -232,6 +232,18 @@ class TestIntegrity:
         with pytest.raises(BundleIntegrityError):
             store.read()
 
+    def test_dotted_table_name_in_key_raises(self, tmp_path: Path) -> None:
+        store = ContextStore(tmp_path / "bundle")
+        store.write(_bundle_with_null_description())
+
+        desc_path = tmp_path / "bundle" / "descriptions.json"
+        desc = json.loads(desc_path.read_text())
+        desc["public.schema.weird"] = None
+        desc_path.write_text(json.dumps(desc))
+
+        with pytest.raises(BundleIntegrityError, match="dotted table name"):
+            store.read()
+
 
 class TestLogging:
     def test_write_emits_one_info_record_with_counts(

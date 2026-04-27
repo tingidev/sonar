@@ -11,7 +11,7 @@ import anthropic
 import httpx
 import pytest
 
-from sonar.engine.llm import AnthropicClient, LLMClient, LLMConfig
+from sonar.engine.llm import AnthropicClient, LLMClient, LLMConfig, _strip_code_fences
 
 
 class TestLLMConfig:
@@ -19,7 +19,7 @@ class TestLLMConfig:
         config = LLMConfig()
         assert config.provider == "anthropic"
         assert config.model == "claude-haiku-4-5-20251001"
-        assert config.max_tokens == 1024
+        assert config.max_tokens == 4096
         assert config.max_concurrent_calls == 5
 
     def test_frozen(self) -> None:
@@ -142,3 +142,31 @@ class TestAnthropicClient:
                     await client.generate("x")
 
         assert [r for r in caplog.records if r.name == "sonar.engine.llm"] == []
+
+    @pytest.mark.asyncio
+    async def test_generate_strips_code_fences(self) -> None:
+        fenced = '```json\n{"key": "value"}\n```'
+        fake_response = _fake_anthropic_response(fenced)
+        with patch("sonar.engine.llm.anthropic.AsyncAnthropic") as mock_cls:
+            mock_cls.return_value.messages.create = AsyncMock(return_value=fake_response)
+            client = AnthropicClient()
+            result = await client.generate("x")
+        assert result == '{"key": "value"}'
+
+
+class TestStripCodeFences:
+    def test_strips_json_fence(self) -> None:
+        assert _strip_code_fences('```json\n{"a": 1}\n```') == '{"a": 1}'
+
+    def test_strips_bare_fence(self) -> None:
+        assert _strip_code_fences('```\n{"a": 1}\n```') == '{"a": 1}'
+
+    def test_leaves_plain_json_alone(self) -> None:
+        assert _strip_code_fences('{"a": 1}') == '{"a": 1}'
+
+    def test_strips_with_surrounding_whitespace(self) -> None:
+        assert _strip_code_fences('  ```json\n{"a": 1}\n```  ') == '{"a": 1}'
+
+    def test_preserves_inner_newlines(self) -> None:
+        inner = '{\n  "a": 1,\n  "b": 2\n}'
+        assert _strip_code_fences(f"```json\n{inner}\n```") == inner

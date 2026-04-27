@@ -20,6 +20,7 @@ _PARSE_RETRY_REMINDER = (
 )
 
 _RAW_TEXT_MAX = 500
+_MAX_PROVIDER_RETRIES = 3
 
 
 class SemanticType(StrEnum):
@@ -124,7 +125,11 @@ class DescriptionEngine:
 
     async def describe_table(self, table: Table, samples: list[dict]) -> TableDescription:
         prompt = build_table_prompt(table, samples)
-        raw = await self._llm.generate(prompt, system=SYSTEM_PROMPT)
+        try:
+            raw = await self._llm.generate(prompt, system=SYSTEM_PROMPT)
+        except Exception:
+            self._log(table, outcome="provider_error")
+            raise
         try:
             description = _parse_table_description(raw, table.schema, table.name, table.columns)
             self._log(table, outcome="ok")
@@ -133,7 +138,11 @@ class DescriptionEngine:
             pass
 
         retry_prompt = f"{prompt}\n\n{_PARSE_RETRY_REMINDER}"
-        raw_retry = await self._llm.generate(retry_prompt, system=SYSTEM_PROMPT)
+        try:
+            raw_retry = await self._llm.generate(retry_prompt, system=SYSTEM_PROMPT)
+        except Exception:
+            self._log(table, outcome="provider_error")
+            raise
         try:
             description = _parse_table_description(
                 raw_retry, table.schema, table.name, table.columns
@@ -155,9 +164,19 @@ class DescriptionEngine:
         semaphore = asyncio.Semaphore(self._config.max_concurrent_calls)
 
         async def _bounded(table: Table) -> TableDescription:
-            async with semaphore:
-                samples = samples_per_table.get((table.schema, table.name), [])
-                return await self.describe_table(table, samples)
+            samples = samples_per_table.get((table.schema, table.name), [])
+            last_exc: BaseException | None = None
+            for attempt in range(_MAX_PROVIDER_RETRIES):
+                async with semaphore:
+                    try:
+                        return await self.describe_table(table, samples)
+                    except DescriptionParseError:
+                        raise
+                    except Exception as exc:
+                        last_exc = exc
+                if attempt < _MAX_PROVIDER_RETRIES - 1:
+                    await asyncio.sleep(2 ** attempt)
+            raise last_exc  # type: ignore[misc]
 
         results = await asyncio.gather(
             *(_bounded(t) for t in tables), return_exceptions=True

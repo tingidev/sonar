@@ -113,7 +113,7 @@ The system SHALL expose `DescriptionEngine.describe_database(tables: list[Table]
 
 ### Requirement: Describe operations are observable
 
-The system SHALL emit one log record per completed `describe_table` on the logger `sonar.engine.describe` at level `INFO`. The record SHALL include the schema, table name, column count, and outcome (`ok`, `parse_retry`, or `failed`). The record SHALL NOT include prompt content, response content, or sample values.
+The system SHALL emit one log record per completed `describe_table` on the logger `sonar.engine.describe` at level `INFO`. The record SHALL include the schema, table name, column count, and outcome (`ok`, `parse_retry`, `failed`, or `provider_error`). The record SHALL NOT include prompt content, response content, or sample values.
 
 #### Scenario: Ok outcome logged on first-try success
 
@@ -129,4 +129,9 @@ The system SHALL emit one log record per completed `describe_table` on the logge
 
 - **WHEN** `describe_table` raises `DescriptionParseError`
 - **THEN** one record SHALL be emitted with outcome `"failed"` before the exception propagates
+
+#### Scenario: provider_error outcome logged on LLM exception
+
+- **WHEN** `LLMClient.generate` raises a non-parse exception (API error, network failure, etc.)
+- **THEN** one record SHALL be emitted with outcome `"provider_error"` before the exception propagates
 

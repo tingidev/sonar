@@ -11,7 +11,7 @@ from pathlib import Path
 from sonar._dsn import scrub_dsn
 from sonar.connectors.postgres import PostgresConnector
 from sonar.engine.describe import DescriptionEngine
-from sonar.engine.llm import AnthropicClient
+from sonar.engine.llm import AnthropicClient, LLMConfig
 from sonar.index.bundle import (
     SCHEMA_VERSION,
     BundleIntegrityError,
@@ -47,6 +47,13 @@ def main(argv: list[str] | None = None) -> int:
         dest="bundle_dir",
         default=".sonar",
         help="Directory where the context bundle is written (default: .sonar/)",
+    )
+    scan_parser.add_argument(
+        "--concurrency",
+        dest="concurrency",
+        type=int,
+        default=None,
+        help="Max concurrent LLM calls during description (default: 5)",
     )
 
     serve_parser = subparsers.add_parser("serve", help="Start the MCP server over stdio")
@@ -95,7 +102,7 @@ def _run_scan(args: argparse.Namespace) -> int:
     bundle_dir = Path(args.bundle_dir)
 
     try:
-        bundle = asyncio.run(_scan_pipeline(dsn))
+        bundle = asyncio.run(_scan_pipeline(dsn, concurrency=args.concurrency))
     except Exception as exc:  # noqa: BLE001 - CLI boundary
         # psycopg's OperationalError embeds the full connection string in its
         # str(), which would leak a password if one was in the DSN. Scrub the
@@ -108,7 +115,7 @@ def _run_scan(args: argparse.Namespace) -> int:
     return 0
 
 
-async def _scan_pipeline(dsn: str) -> ContextBundle:
+async def _scan_pipeline(dsn: str, *, concurrency: int | None = None) -> ContextBundle:
     async with PostgresConnector(dsn) as conn:
         tables = await conn.discover_tables()
         foreign_keys = await conn.discover_relationships()
@@ -118,7 +125,8 @@ async def _scan_pipeline(dsn: str) -> ContextBundle:
                 table.schema, table.name
             )
 
-        engine = DescriptionEngine(AnthropicClient())
+        config = LLMConfig(max_concurrent_calls=concurrency) if concurrency else LLMConfig()
+        engine = DescriptionEngine(AnthropicClient(config), config)
         descriptions = await engine.describe_database(tables, samples)
 
     relationships = map_relationships(tables, foreign_keys)

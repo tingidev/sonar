@@ -152,6 +152,10 @@ def _decode_descriptions(
         schema, sep, name = key.partition(".")
         if not sep or not schema or not name:
             raise BundleIntegrityError(f"Malformed description key: {key!r}")
+        if "." in name:
+            raise BundleIntegrityError(
+                f"Description key {key!r} contains a dotted table name"
+            )
         tkey = (schema, name)
         if value is None:
             out[tkey] = None

@@ -175,11 +175,18 @@ Every successful or rejected `sample` invocation SHALL emit a structured log rec
 - **THEN** a record is emitted to `sonar.mcp.audit` with the schema, table, requested limit, effective limit, and row count
 - **AND** no row values appear in the record
 
-#### Scenario: Rejected call is audited
+#### Scenario: Rejected call is audited (cap)
 
 - **WHEN** `sample` rejects a call for exceeding the row cap
-- **THEN** a record is emitted to `sonar.mcp.audit` noting the rejection and the requested limit
+- **THEN** a record is emitted to `sonar.mcp.audit` with outcome `rejected_cap` and the requested limit
 - **AND** no connection to the database is opened
+
+#### Scenario: Rejected call is audited (unknown table)
+
+- **WHEN** `sample` is called with a `(schema, table)` pair not present in the bundle
+- **THEN** a record is emitted to `sonar.mcp.audit` with outcome `rejected_unknown_table`
+- **AND** no connection to the database is opened
+- **AND** the tool returns an error distinguishable from a DB error
 
 ### Requirement: DSN credentials are scrubbed from all agent-visible error paths
 

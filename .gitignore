@@ -12,6 +12,7 @@ build/
 .envrc
 
 .sonar/
+.sonar-*/
 *.json.bak
 
 .pytest_cache/

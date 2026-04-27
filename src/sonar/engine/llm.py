@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import abc
 import logging
+import re
 import time
 from dataclasses import dataclass
 
@@ -20,7 +21,7 @@ _LOGGER = logging.getLogger("sonar.engine.llm")
 class LLMConfig:
     provider: str = "anthropic"
     model: str = "claude-haiku-4-5-20251001"
-    max_tokens: int = 1024
+    max_tokens: int = 4096
     max_concurrent_calls: int = 5
 
 
@@ -65,4 +66,13 @@ class AnthropicClient(LLMClient):
                 "latency_ms": latency_ms,
             },
         )
-        return response.content[0].text
+        return _strip_code_fences(response.content[0].text)
+
+
+_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*\n(.*?)\n```\s*$", re.DOTALL)
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove markdown code fences wrapping the response, if present."""
+    m = _CODE_FENCE_RE.match(text.strip())
+    return m.group(1) if m else text

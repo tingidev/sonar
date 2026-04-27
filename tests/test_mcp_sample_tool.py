@@ -293,19 +293,26 @@ class TestIdentifierSafety:
     @pytest.mark.asyncio
     async def test_identifier_quoting_stops_injection_payload(
         self,
-        bundle: ContextBundle,
         fake_connect: _FakeConnect,
     ) -> None:
+        injection_payload = 'people"; DROP TABLE people; --'
+        injection_table = Table(
+            schema="public",
+            name=injection_payload,
+            columns=(
+                Column("id", "int", nullable=False, is_primary_key=True),
+            ),
+        )
+        bundle = ContextBundle(
+            meta=_meta(),
+            tables=(injection_table,),
+            descriptions={("public", injection_payload): None},
+            relationships=(),
+        )
         sample = make_sample_tool(bundle, dsn="postgresql://user:pw@h/db")
-        # The payload would be a SQL injection under f-string composition.
-        # psycopg's Identifier quotes it as a literal (non-existent) name.
-        injection_payload = 'users"; DROP TABLE users; --'
         await sample("public", injection_payload, limit=1)
         composed_sql = fake_connect.captured_query[0].as_string(None)
-        # DROP TABLE must not appear as unquoted SQL. It may appear as a
-        # quoted-literal substring inside the identifier (that's the Identifier
-        # guarantee — the payload is treated as a name, not a statement).
-        assert "DROP TABLE users;" not in _strip_quoted_identifiers(composed_sql)
+        assert "DROP TABLE people;" not in _strip_quoted_identifiers(composed_sql)
 
 
 def _strip_quoted_identifiers(sql: str) -> str:
@@ -424,6 +431,58 @@ class TestRowSerialisation:
         rows = await sample("public", "people", limit=1)
         assert rows[0]["user_id"] == "22222222-2222-2222-2222-222222222222"
         assert isinstance(rows[0]["user_id"], str)
+
+
+# ---------------------------------------------------------------------------
+# Unknown-table rejection
+# ---------------------------------------------------------------------------
+
+
+class TestUnknownTableRejection:
+    @pytest.mark.asyncio
+    async def test_unknown_table_rejected_before_db_call(
+        self,
+        bundle: ContextBundle,
+        fake_connect: _FakeConnect,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        sample = make_sample_tool(bundle, dsn="postgresql://user:pw@h/db")
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="sonar.mcp.audit"):
+            with pytest.raises(ToolError, match="not in the bundle"):
+                await sample("public", "nonexistent", limit=1)
+        assert fake_connect.calls == 0
+        records = [r for r in caplog.records if r.name == "sonar.mcp.audit"]
+        assert len(records) == 1
+        assert records[0].outcome == "rejected_unknown_table"
+        assert records[0].limit_effective is None
+
+    @pytest.mark.asyncio
+    async def test_unknown_schema_rejected(
+        self,
+        bundle: ContextBundle,
+        fake_connect: _FakeConnect,
+    ) -> None:
+        sample = make_sample_tool(bundle, dsn="postgresql://user:pw@h/db")
+        with pytest.raises(ToolError, match="not in the bundle"):
+            await sample("secret_schema", "people", limit=1)
+        assert fake_connect.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_known_table_passes_through(
+        self,
+        bundle: ContextBundle,
+        fake_connect: _FakeConnect,
+    ) -> None:
+        sample = make_sample_tool(bundle, dsn="postgresql://user:pw@h/db")
+        rows = await sample("public", "people", limit=1)
+        assert fake_connect.calls == 1
+        assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
 
 def test_constants_match_design() -> None:
