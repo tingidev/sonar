@@ -127,9 +127,7 @@ class TestScanCLI:
         assert bundle is not None
         assert bundle.descriptions[("public", "orders")] is None
 
-    def test_url_alias_accepted(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_url_alias_accepted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_fake_client(monkeypatch)
 
         bundle_dir = tmp_path / "bundle"
@@ -161,9 +159,7 @@ class TestScanCLIFailures:
         assert unreachable not in captured.err
         assert not bundle_dir.exists()
 
-    def test_missing_dsn_exits_nonzero(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_missing_dsn_exits_nonzero(self, capsys: pytest.CaptureFixture[str]) -> None:
         exit_code = main(["scan"])
         assert exit_code == 2
         captured = capsys.readouterr()

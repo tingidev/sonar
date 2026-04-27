@@ -46,10 +46,16 @@ def _users_table() -> Table:
 
 def _users_samples() -> list[dict]:
     return [
-        {"user_id": "11111111-1111-1111-1111-111111111111", "email": "a@x.com",
-         "created_at": "2026-01-01T00:00:00Z"},
-        {"user_id": "22222222-2222-2222-2222-222222222222", "email": "b@x.com",
-         "created_at": "2026-01-02T00:00:00Z"},
+        {
+            "user_id": "11111111-1111-1111-1111-111111111111",
+            "email": "a@x.com",
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+        {
+            "user_id": "22222222-2222-2222-2222-222222222222",
+            "email": "b@x.com",
+            "created_at": "2026-01-02T00:00:00Z",
+        },
     ]
 
 
@@ -446,10 +452,12 @@ class TestDescribeDatabase:
     async def test_provider_error_retried_with_backoff(self) -> None:
         table = _tiny_table(0)
         valid = _valid_payload_for(table)
-        client = FakeLLMClient(responses=[
-            RuntimeError("rate limited"),
-            valid,
-        ])
+        client = FakeLLMClient(
+            responses=[
+                RuntimeError("rate limited"),
+                valid,
+            ]
+        )
         engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
 
         result = await engine.describe_database([table], {(table.schema, table.name): []})
@@ -460,11 +468,13 @@ class TestDescribeDatabase:
     @pytest.mark.asyncio
     async def test_provider_error_exhausts_retries(self) -> None:
         table = _tiny_table(0)
-        client = FakeLLMClient(responses=[
-            RuntimeError("rate limited"),
-            RuntimeError("rate limited"),
-            RuntimeError("rate limited"),
-        ])
+        client = FakeLLMClient(
+            responses=[
+                RuntimeError("rate limited"),
+                RuntimeError("rate limited"),
+                RuntimeError("rate limited"),
+            ]
+        )
         engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
 
         result = await engine.describe_database([table], {(table.schema, table.name): []})
@@ -540,9 +550,7 @@ class TestLogging:
     @pytest.mark.asyncio
     async def test_provider_error_on_retry_call(self, caplog: pytest.LogCaptureFixture) -> None:
         table = _users_table()
-        client = FakeLLMClient(
-            responses=["not json", RuntimeError("rate limited")]
-        )
+        client = FakeLLMClient(responses=["not json", RuntimeError("rate limited")])
         engine = DescriptionEngine(client)
 
         caplog.clear()

@@ -264,8 +264,7 @@ def test_declared_blocks_inference_on_same_source():
         r
         for r in result
         if r.kind is RelationshipKind.INFERRED
-        and (r.source_schema, r.source_table, r.source_column)
-        == ("public", "orders", "user_id")
+        and (r.source_schema, r.source_table, r.source_column) == ("public", "orders", "user_id")
     ]
     assert inferred_with_same_source == []
 
@@ -305,9 +304,9 @@ def test_deterministic_ordering():
 
     assert result == declared + inferred
     assert [r.source_column for r in declared] == ["product_id", "user_id"]
-    assert [
+    assert [(r.source_schema, r.source_table, r.source_column) for r in inferred] == sorted(
         (r.source_schema, r.source_table, r.source_column) for r in inferred
-    ] == sorted((r.source_schema, r.source_table, r.source_column) for r in inferred)
+    )
     assert [r.source_column for r in inferred] == ["customer_id"]
 
 
@@ -355,7 +354,5 @@ def test_logging_contract(caplog):
     assert record.inferred == 0
     assert record.tables_scanned == 2
 
-    haystack = " ".join(
-        str(v) for k, v in record.__dict__.items() if isinstance(v, (str, bytes))
-    )
+    haystack = " ".join(str(v) for k, v in record.__dict__.items() if isinstance(v, (str, bytes)))
     assert "secret_value" not in haystack

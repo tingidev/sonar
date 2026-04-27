@@ -167,25 +167,19 @@ class TestDiscover:
         assert by_name[("public", "users")]["row_count"] == 42
         assert by_name[("public", "orders")]["row_count"] is None
 
-    def test_schema_filter_restricts_to_matching_schema(
-        self, bundle: ContextBundle
-    ) -> None:
+    def test_schema_filter_restricts_to_matching_schema(self, bundle: ContextBundle) -> None:
         result = discover_tool(bundle, schema="public")
         assert {(r["schema"], r["name"]) for r in result} == {
             ("public", "users"),
             ("public", "orders"),
         }
 
-    def test_schema_filter_no_match_returns_empty_list(
-        self, bundle: ContextBundle
-    ) -> None:
+    def test_schema_filter_no_match_returns_empty_list(self, bundle: ContextBundle) -> None:
         assert discover_tool(bundle, schema="ghost") == []
 
 
 class TestDescribe:
-    def test_successful_describe_joins_tables_and_descriptions(
-        self, bundle: ContextBundle
-    ) -> None:
+    def test_successful_describe_joins_tables_and_descriptions(self, bundle: ContextBundle) -> None:
         result = describe_tool(bundle, "public", "users")
         assert result["schema"] == "public"
         assert result["name"] == "users"
@@ -196,9 +190,7 @@ class TestDescribe:
         assert by_name["email"]["semantic_type"] == "dimension"
         assert by_name["user_id"]["is_primary_key"] is True
 
-    def test_null_description_returns_raw_column_shape(
-        self, bundle: ContextBundle
-    ) -> None:
+    def test_null_description_returns_raw_column_shape(self, bundle: ContextBundle) -> None:
         result = describe_tool(bundle, "public", "orders")
         assert result["schema"] == "public"
         assert result["name"] == "orders"
@@ -220,17 +212,13 @@ class TestDescribe:
 
 
 class TestRelationships:
-    def test_outgoing_only_returns_edges_from_target(
-        self, bundle: ContextBundle
-    ) -> None:
+    def test_outgoing_only_returns_edges_from_target(self, bundle: ContextBundle) -> None:
         edges = relationships_tool(bundle, "public", "orders", direction="outgoing")
         assert len(edges) == 1
         assert edges[0]["source_table"] == "orders"
         assert edges[0]["target_table"] == "users"
 
-    def test_incoming_only_returns_edges_to_target(
-        self, bundle: ContextBundle
-    ) -> None:
+    def test_incoming_only_returns_edges_to_target(self, bundle: ContextBundle) -> None:
         edges = relationships_tool(bundle, "public", "users", direction="incoming")
         assert len(edges) == 1
         assert edges[0]["source_table"] == "orders"
@@ -240,9 +228,7 @@ class TestRelationships:
         edges = relationships_tool(bundle, "public", "users")
         assert len(edges) == 1
 
-    def test_table_with_no_relationships_returns_empty_list(
-        self, bundle: ContextBundle
-    ) -> None:
+    def test_table_with_no_relationships_returns_empty_list(self, bundle: ContextBundle) -> None:
         assert relationships_tool(bundle, "analytics", "audit_events") == []
 
     def test_invalid_direction_raises_tool_error(self, bundle: ContextBundle) -> None:
@@ -253,26 +239,19 @@ class TestRelationships:
 class TestSearch:
     def test_table_name_match(self, bundle: ContextBundle) -> None:
         result = search_tool(bundle, "users")
-        assert any(
-            r["table"] == "users" and r["match_type"] == "table_name" for r in result
-        )
+        assert any(r["table"] == "users" and r["match_type"] == "table_name" for r in result)
 
     def test_column_name_match(self, bundle: ContextBundle) -> None:
         result = search_tool(bundle, "order_id")
-        assert any(
-            r["table"] == "orders" and r["match_type"] == "column_name" for r in result
-        )
+        assert any(r["table"] == "orders" and r["match_type"] == "column_name" for r in result)
 
     def test_description_body_match(self, bundle: ContextBundle) -> None:
         result = search_tool(bundle, "Pharmaceutical")
         assert any(
-            r["table"] == "audit_events" and r["match_type"] == "description_body"
-            for r in result
+            r["table"] == "audit_events" and r["match_type"] == "description_body" for r in result
         )
 
-    def test_ranking_tier_order_table_then_column_then_body(
-        self, bundle: ContextBundle
-    ) -> None:
+    def test_ranking_tier_order_table_then_column_then_body(self, bundle: ContextBundle) -> None:
         # "email" matches the `email` column name on users AND the users
         # description body ("Customer email address"). No table name matches.
         # Column-name wins the tier — confirms ranking prefers column over body.

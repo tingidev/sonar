@@ -81,9 +81,7 @@ def describe_tool(
                 "is_primary_key": col.is_primary_key,
                 "foreign_key": col.foreign_key,
                 "description": desc.description if desc is not None else None,
-                "semantic_type": (
-                    desc.semantic_type.value if desc is not None else None
-                ),
+                "semantic_type": (desc.semantic_type.value if desc is not None else None),
                 "pii_risk": desc.pii_risk.value if desc is not None else None,
                 "confidence": desc.confidence if desc is not None else None,
             }
@@ -95,9 +93,7 @@ def describe_tool(
         "row_count": table_obj.row_count,
         "description": description.description if description is not None else None,
         "grain": description.grain if description is not None else None,
-        "domain_hints": (
-            list(description.domain_hints) if description is not None else None
-        ),
+        "domain_hints": (list(description.domain_hints) if description is not None else None),
         "confidence": description.confidence if description is not None else None,
         "columns": columns,
     }

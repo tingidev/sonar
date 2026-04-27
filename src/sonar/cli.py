@@ -121,9 +121,7 @@ async def _scan_pipeline(dsn: str, *, concurrency: int | None = None) -> Context
         foreign_keys = await conn.discover_relationships()
         samples: dict[tuple[str, str], list[dict]] = {}
         for table in tables:
-            samples[(table.schema, table.name)] = await conn.sample_table(
-                table.schema, table.name
-            )
+            samples[(table.schema, table.name)] = await conn.sample_table(table.schema, table.name)
 
         config = LLMConfig(max_concurrent_calls=concurrency) if concurrency else LLMConfig()
         engine = DescriptionEngine(AnthropicClient(config), config)

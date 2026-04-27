@@ -52,9 +52,7 @@ class TestServeCli:
 
         monkeypatch.setattr(ContextStore, "read", _raise_integrity)
 
-        exit_code = main(
-            ["serve", "--bundle-dir", str(tmp_path), secret_dsn]
-        )
+        exit_code = main(["serve", "--bundle-dir", str(tmp_path), secret_dsn])
         assert exit_code == 1
         captured = capsys.readouterr()
         assert "serve failed" in captured.err

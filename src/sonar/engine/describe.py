@@ -79,13 +79,9 @@ def _parse_table_description(
         payload = json.loads(raw)
         cols_payload = payload["columns"]
         if len(cols_payload) != len(columns):
-            raise ValueError(
-                f"LLM returned {len(cols_payload)} columns, expected {len(columns)}"
-            )
+            raise ValueError(f"LLM returned {len(cols_payload)} columns, expected {len(columns)}")
         parsed_columns: list[ColumnDescription] = []
-        for i, (source_col, col_payload) in enumerate(
-            zip(columns, cols_payload, strict=True)
-        ):
+        for i, (source_col, col_payload) in enumerate(zip(columns, cols_payload, strict=True)):
             payload_name = col_payload["name"]
             if payload_name != source_col.name:
                 raise ValueError(
@@ -175,12 +171,10 @@ class DescriptionEngine:
                     except Exception as exc:
                         last_exc = exc
                 if attempt < _MAX_PROVIDER_RETRIES - 1:
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(2**attempt)
             raise last_exc  # type: ignore[misc]
 
-        results = await asyncio.gather(
-            *(_bounded(t) for t in tables), return_exceptions=True
-        )
+        results = await asyncio.gather(*(_bounded(t) for t in tables), return_exceptions=True)
 
         out: dict[tuple[str, str], TableDescription | None] = {}
         for table, result in zip(tables, results, strict=True):

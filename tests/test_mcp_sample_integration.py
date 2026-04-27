@@ -50,18 +50,10 @@ def _users_bundle() -> ContextBundle:
         grain="one row per user",
         domain_hints=(),
         columns=(
-            ColumnDescription(
-                "user_id", "", SemanticType.IDENTIFIER, PIIRisk.NONE, 0.9
-            ),
-            ColumnDescription(
-                "email", "", SemanticType.DIMENSION, PIIRisk.HIGH, 0.9
-            ),
-            ColumnDescription(
-                "name", "", SemanticType.DIMENSION, PIIRisk.HIGH, 0.9
-            ),
-            ColumnDescription(
-                "created_at", "", SemanticType.DIMENSION, PIIRisk.NONE, 0.9
-            ),
+            ColumnDescription("user_id", "", SemanticType.IDENTIFIER, PIIRisk.NONE, 0.9),
+            ColumnDescription("email", "", SemanticType.DIMENSION, PIIRisk.HIGH, 0.9),
+            ColumnDescription("name", "", SemanticType.DIMENSION, PIIRisk.HIGH, 0.9),
+            ColumnDescription("created_at", "", SemanticType.DIMENSION, PIIRisk.NONE, 0.9),
         ),
         confidence=0.9,
     )

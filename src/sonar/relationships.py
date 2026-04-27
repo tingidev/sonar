@@ -49,9 +49,7 @@ def map_relationships(
         (fk.source_schema, fk.source_table, fk.source_column) for fk in foreign_keys
     }
 
-    tables_by_schema_name: dict[tuple[str, str], Table] = {
-        (t.schema, t.name): t for t in tables
-    }
+    tables_by_schema_name: dict[tuple[str, str], Table] = {(t.schema, t.name): t for t in tables}
 
     inferred: list[Relationship] = []
     for table in tables:

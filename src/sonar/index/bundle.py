@@ -16,9 +16,7 @@ class BundleVersionError(Exception):
     """Raised when a persisted bundle declares a schema version this code does not support."""
 
     def __init__(self, *, expected: int, found: int) -> None:
-        super().__init__(
-            f"Bundle schema version mismatch: expected {expected}, found {found}"
-        )
+        super().__init__(f"Bundle schema version mismatch: expected {expected}, found {found}")
         self.expected = expected
         self.found = found
 

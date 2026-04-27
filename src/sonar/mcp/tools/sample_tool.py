@@ -48,9 +48,11 @@ def make_sample_tool(
         if requested > MAX_SAMPLE_ROWS:
             emit_sample_audit(
                 outcome="rejected_cap",
-                schema=schema, table=table,
+                schema=schema,
+                table=table,
                 limit_requested=requested,
-                limit_effective=None, rows_returned=None,
+                limit_effective=None,
+                rows_returned=None,
             )
             raise ToolError(
                 f"sample limit {requested} exceeds cap of {MAX_SAMPLE_ROWS}; "
@@ -60,24 +62,25 @@ def make_sample_tool(
         if (schema, table) not in bundle_keys:
             emit_sample_audit(
                 outcome="rejected_unknown_table",
-                schema=schema, table=table,
+                schema=schema,
+                table=table,
                 limit_requested=requested,
-                limit_effective=None, rows_returned=None,
+                limit_effective=None,
+                rows_returned=None,
             )
             raise ToolError(f"table {schema}.{table} is not in the bundle")
 
-        protected = (
-            set() if allow_pii
-            else _protected_column_names(bundle, schema, table)
-        )
+        protected = set() if allow_pii else _protected_column_names(bundle, schema, table)
 
         try:
             raw_rows = await _fetch_rows(dsn, schema, table, requested)
         except ToolError:
             emit_sample_audit(
                 outcome="db_error",
-                schema=schema, table=table,
-                limit_requested=requested, limit_effective=requested,
+                schema=schema,
+                table=table,
+                limit_requested=requested,
+                limit_effective=requested,
                 rows_returned=None,
             )
             raise
@@ -85,8 +88,10 @@ def make_sample_tool(
         rows = _redact_rows(raw_rows, protected)
         emit_sample_audit(
             outcome="ok",
-            schema=schema, table=table,
-            limit_requested=requested, limit_effective=requested,
+            schema=schema,
+            table=table,
+            limit_requested=requested,
+            limit_effective=requested,
             rows_returned=len(rows),
         )
         return rows

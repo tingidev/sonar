@@ -153,17 +153,13 @@ def _decode_descriptions(
         if not sep or not schema or not name:
             raise BundleIntegrityError(f"Malformed description key: {key!r}")
         if "." in name:
-            raise BundleIntegrityError(
-                f"Description key {key!r} contains a dotted table name"
-            )
+            raise BundleIntegrityError(f"Description key {key!r} contains a dotted table name")
         tkey = (schema, name)
         if value is None:
             out[tkey] = None
         else:
             if not isinstance(value, dict):
-                raise BundleIntegrityError(
-                    f"Description for {key!r} is not a JSON object"
-                )
+                raise BundleIntegrityError(f"Description for {key!r} is not a JSON object")
             out[tkey] = _decode_table_description(value)
     return out
 
@@ -231,10 +227,6 @@ def _check_integrity(
     orphan = desc_keys - table_keys
     missing = table_keys - desc_keys
     if orphan:
-        raise BundleIntegrityError(
-            f"Description keys without a matching table: {sorted(orphan)}"
-        )
+        raise BundleIntegrityError(f"Description keys without a matching table: {sorted(orphan)}")
     if missing:
-        raise BundleIntegrityError(
-            f"Tables without a description entry: {sorted(missing)}"
-        )
+        raise BundleIntegrityError(f"Tables without a description entry: {sorted(missing)}")

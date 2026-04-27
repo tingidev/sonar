@@ -73,9 +73,7 @@ def _orders_table() -> Table:
     return Table(
         schema="public",
         name="orders",
-        columns=(
-            Column(name="order_id", data_type="uuid", nullable=False, is_primary_key=True),
-        ),
+        columns=(Column(name="order_id", data_type="uuid", nullable=False, is_primary_key=True),),
     )
 
 
@@ -156,16 +154,12 @@ class TestContextBundle:
 
 class TestFormatDatabaseLabel:
     def test_password_is_stripped(self) -> None:
-        label = format_database_label(
-            "postgresql://sonar:secret@localhost:5433/sonar_test"
-        )
+        label = format_database_label("postgresql://sonar:secret@localhost:5433/sonar_test")
         assert "secret" not in label
         assert label == "sonar@localhost:5433/sonar_test"
 
     def test_no_password(self) -> None:
-        label = format_database_label(
-            "postgresql://sonar@localhost:5433/sonar_test"
-        )
+        label = format_database_label("postgresql://sonar@localhost:5433/sonar_test")
         assert label == "sonar@localhost:5433/sonar_test"
 
     def test_bare_hostname_dsn(self) -> None:
@@ -181,8 +175,6 @@ class TestFormatDatabaseLabel:
         # Pathological: password contains delimiters. Either the label strips the
         # password and keeps the host, or it falls back to the safe placeholder.
         # Either is acceptable; leaking the password is not.
-        label = format_database_label(
-            "postgresql://u:p@ss:wor/d@localhost:5433/db"
-        )
+        label = format_database_label("postgresql://u:p@ss:wor/d@localhost:5433/db")
         assert "p@ss:wor/d" not in label
         assert "secret" not in label

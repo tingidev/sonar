@@ -59,9 +59,7 @@ class TestBundleOnlyMode:
 
 class TestLiveMode:
     def test_tool_list_includes_sample_plus_four(self) -> None:
-        app = build_server(
-            _tiny_bundle(), dsn="postgresql://sonar:pw@localhost:5432/db"
-        )
+        app = build_server(_tiny_bundle(), dsn="postgresql://sonar:pw@localhost:5432/db")
         names = _registered_tool_names(app)
         assert "sample" in names
         for expected in ("discover", "describe", "relationships", "search"):

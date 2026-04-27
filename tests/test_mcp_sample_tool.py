@@ -64,21 +64,11 @@ def _people_description() -> TableDescription:
         grain="one row per person",
         domain_hints=(),
         columns=(
-            ColumnDescription(
-                "user_id", "", SemanticType.IDENTIFIER, PIIRisk.NONE, 0.9
-            ),
-            ColumnDescription(
-                "email", "", SemanticType.DIMENSION, PIIRisk.HIGH, 0.9
-            ),
-            ColumnDescription(
-                "city", "", SemanticType.DIMENSION, PIIRisk.MEDIUM, 0.9
-            ),
-            ColumnDescription(
-                "country", "", SemanticType.DIMENSION, PIIRisk.LOW, 0.9
-            ),
-            ColumnDescription(
-                "signup_count", "", SemanticType.MEASURE, PIIRisk.NONE, 0.9
-            ),
+            ColumnDescription("user_id", "", SemanticType.IDENTIFIER, PIIRisk.NONE, 0.9),
+            ColumnDescription("email", "", SemanticType.DIMENSION, PIIRisk.HIGH, 0.9),
+            ColumnDescription("city", "", SemanticType.DIMENSION, PIIRisk.MEDIUM, 0.9),
+            ColumnDescription("country", "", SemanticType.DIMENSION, PIIRisk.LOW, 0.9),
+            ColumnDescription("signup_count", "", SemanticType.MEASURE, PIIRisk.NONE, 0.9),
         ),
         confidence=0.9,
     )
@@ -258,9 +248,7 @@ class TestPIIStripping:
         bundle: ContextBundle,
         fake_connect: _FakeConnect,
     ) -> None:
-        sample = make_sample_tool(
-            bundle, dsn="postgresql://user:pw@h/db", allow_pii=True
-        )
+        sample = make_sample_tool(bundle, dsn="postgresql://user:pw@h/db", allow_pii=True)
         rows = await sample("public", "people")
         assert rows[0]["email"] == "alice@example.com"
         assert rows[0]["city"] == "Barcelona"
@@ -299,9 +287,7 @@ class TestIdentifierSafety:
         injection_table = Table(
             schema="public",
             name=injection_payload,
-            columns=(
-                Column("id", "int", nullable=False, is_primary_key=True),
-            ),
+            columns=(Column("id", "int", nullable=False, is_primary_key=True),),
         )
         bundle = ContextBundle(
             meta=_meta(),
@@ -352,9 +338,7 @@ class TestDsnScrub:
         dsn = "postgresql://sonar:hunter2@127.0.0.1:1/sonar_test"
         # psycopg's OperationalError typically embeds the DSN in its message.
         fake = _FakeConnect(
-            raises=psycopg.OperationalError(
-                f"connection to {dsn} failed: could not connect"
-            )
+            raises=psycopg.OperationalError(f"connection to {dsn} failed: could not connect")
         )
         monkeypatch.setattr(psycopg.AsyncConnection, "connect", fake)
 
@@ -425,9 +409,7 @@ class TestRowSerialisation:
         )
         monkeypatch.setattr(psycopg.AsyncConnection, "connect", fake)
 
-        sample = make_sample_tool(
-            bundle, dsn="postgresql://u:p@h/db", allow_pii=True
-        )
+        sample = make_sample_tool(bundle, dsn="postgresql://u:p@h/db", allow_pii=True)
         rows = await sample("public", "people", limit=1)
         assert rows[0]["user_id"] == "22222222-2222-2222-2222-222222222222"
         assert isinstance(rows[0]["user_id"], str)

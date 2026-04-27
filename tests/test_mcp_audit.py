@@ -10,9 +10,7 @@ from sonar.mcp.audit import emit_sample_audit
 
 
 class TestEmitSampleAudit:
-    def test_ok_record_contains_documented_fields(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_ok_record_contains_documented_fields(self, caplog: pytest.LogCaptureFixture) -> None:
         caplog.clear()
         with caplog.at_level(logging.INFO, logger="sonar.mcp.audit"):
             emit_sample_audit(

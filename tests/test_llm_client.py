@@ -90,15 +90,11 @@ class TestAnthropicClient:
             AnthropicClient(api_key="sk-test")  # type: ignore[call-arg]
 
     @pytest.mark.asyncio
-    async def test_logs_info_record_without_payload(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_logs_info_record_without_payload(self, caplog: pytest.LogCaptureFixture) -> None:
         prompt = "please describe the orders table"
         system = "you are a data analyst"
         response_text = "nothing about the prompt appears here"
-        fake_response = _fake_anthropic_response(
-            response_text, input_tokens=111, output_tokens=9
-        )
+        fake_response = _fake_anthropic_response(response_text, input_tokens=111, output_tokens=9)
 
         with patch("sonar.engine.llm.anthropic.AsyncAnthropic") as mock_cls:
             mock_cls.return_value.messages.create = AsyncMock(return_value=fake_response)
@@ -128,9 +124,7 @@ class TestAnthropicClient:
                 assert response_text not in value
 
     @pytest.mark.asyncio
-    async def test_no_log_on_provider_exception(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_no_log_on_provider_exception(self, caplog: pytest.LogCaptureFixture) -> None:
         request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
         api_error = anthropic.APIError(message="boom", request=request, body=None)
         with patch("sonar.engine.llm.anthropic.AsyncAnthropic") as mock_cls:
