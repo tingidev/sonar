@@ -230,6 +230,52 @@ The third real capability. Consumes `list[Table]` + `list[ForeignKey]` from the 
 - One INFO log record per call with counts; no per-edge logs; no column values.
 - Pure unit tests — no Docker, no async, no fixtures.
 
+### Extension: inferred-relationships (2026-04-28)
+
+**What changed.** The original rule (`<stem>_id` → table named `<stem>` or `<stem>s`) recovered 8.8% of declared FKs on ChEMBL (8/91). Table-name disambiguation assumes app-style naming that canonical schemas (life-sciences, finance, anything domain-curated) don't use — ChEMBL keys on `molregno`, `tid`, `record_id` and never names a table after its PK. Replaced with a two-rule combined heuristic plus a precision filter. Recall lifted to 68.1% at 92.5% precision (62/67/91).
+
+**New architecture.**
+- **Rule A — direct PK-name match.** `column.name == pk_name` of one same-schema table (e.g. `activities.action_type → action_type.action_type`).
+- **Rule B — role-prefix match.** `column.name.endswith("_" + pk_name)` (e.g. `metabolism.enzyme_tid → target_dictionary.tid`).
+- **Combined.** Candidates from both rules are deduplicated; one INFERRED edge emitted only when the deduplicated set has size 1. Ambiguity-as-silence invariant carried over from V1.
+- **Catch-all PK filter (D3).** A PK is excluded as a target — for both rules — when its **match-pressure** (count of same-schema non-PK columns matching it via Rule A or Rule B) exceeds 15. Without it, ChEMBL's `version.name` absorbs every `*_name` column in the schema.
+
+**Key decisions.**
+
+- **Replace, not union.** The original `<stem>_id` rule's 8 ChEMBL hits are fully subsumed by Rule A + B; keeping it would add reasoning surface for zero recall benefit. If a real schema later shows the union helps, revive then.
+
+- **Filter on the symptom side, not the source side (D3 mid-flight rewrite).** The initial D3 framed the filter as "exclude PKs whose name appears as a non-PK column on many same-schema tables" — a source-side count. Apply-phase ChEMBL prototype showed this misses the actual catch-all: `version.name` has zero non-PK columns literally named `name` but 18 columns ending in `_name`. Rule B routes them all there, and the source-side metric never sees them. Rewrote D3 around target-side combined match-pressure (Rule A pressure + Rule B pressure), applied the filter to both rules. **Lesson worth holding: when a precision filter drops legitimate hits and removes zero spurious, the metric is measuring the wrong axis.**
+
+- **Threshold lives in `design.md`, not the spec.** The spec says "match-pressure exceeds the design-documented threshold." `design.md` pins it at 15, justified by the ChEMBL pressure distribution — one large gap between `name` at 18 and `molregno` at 13, and threshold values 14–17 give identical ChEMBL results. Future schemas may shift the right value; no spec churn needed when it does. Per freeze discipline: shape in spec, value in design.
+
+- **`RelationshipKind` stays binary, again.** `inference_method` ("rule_a"/"rule_b") and `confidence: float` were considered and rejected again. No current consumer (MCP `relationships`/`search`, future `evaluation-toolkit`) reads provenance; minimum-interface principle says add the field additively when a real consumer asks. The cost of "rule_a"/"rule_b" today is locking the taxonomy before `evaluation-toolkit` exists to tell us what it actually wants.
+
+**Implementation details.**
+
+- `_build_pk_index(tables) → dict[(schema, pk_name), list[(schema, table)]]` over single-column-PK tables only.
+- `_build_match_pressure(tables, pk_index) → Counter[(schema, pk_name)]` — single pass over all non-PK columns; for each PK in the same schema, increments if the column matches Rule A (`==`) or Rule B (`endswith("_" + pk_name)`). Combined metric, one number per PK.
+- `_candidate_targets(table, column, pk_index, excluded_targets)` runs both rules with a shared `seen` set for deduplication; both rules consult the same `excluded_targets` set so the filter applies uniformly.
+- **Self-key guard asymmetry.** Rule B has a `tab == self_key` skip — role-prefix can legitimately route `users.user_id` at its own `users.id` PK. Rule A doesn't need one — a non-PK column cannot share its own table's PK name. The asymmetry is real, not an oversight; commented in-code so the next reader doesn't add a redundant guard.
+
+**What goes wrong (new).**
+
+- **App-style schema regression.** On a Rails-style schema where every table has `id` PK: Rule B (`_id → id`) gets ambiguity-blocked everywhere, AND `id` is excluded as a Rule A target by the catch-all filter. Net recall near zero on that shape. Documented limitation. Future fix: a table-stem preference rule (when multiple Rule A/B candidates, prefer the one whose table name matches the column stem) — captured in `design.md` Open Questions, not built. Revival trigger: real-user report.
+
+- **Residual ambiguity on canonical names.** ~25pp of ChEMBL recall is lost to Rule A targets that exist in multiple same-schema tables (`compound_records.molregno` matches both `molecule_dictionary.molregno` and `biotherapeutics.molregno`). The deferred `relationship-overlap-tiebreaker` (ROADMAP 7b) is the explicit job for this gap — value-overlap as a tiebreaker on already-ambiguous candidates, not a discoverer of new ones.
+
+- **Single-schema validation surface.** All percentages come from ChEMBL alone. Rule shapes and threshold are calibrated to canonical-name schemas; a second real schema is the explicit revisit trigger across D1, D3, and the Open Questions section. Don't over-fit further on one corpus.
+
+**Decisions made.**
+
+- Two-rule combined heuristic (Rule A direct + Rule B role-prefix) replaces the single `<stem>_id` rule.
+- Match-pressure-based catch-all PK filter, threshold 15, applied to both rules.
+- Filter operates on the target side (combined match-pressure), not the source side — caught mid-flight during apply.
+- Spec stays at shape level; concrete metric and threshold live in `design.md`.
+- `RelationshipKind` remains binary; no `inference_method`, no `confidence`.
+- Same-schema-only, single-column-PK, declared-skip, PK-source-skip invariants preserved.
+- App-style regression accepted as known limitation; table-stem preference rule deferred.
+- Value-overlap tiebreaker deferred as `relationship-overlap-tiebreaker` (ROADMAP 7b).
+
 ---
 
 ## Context Index

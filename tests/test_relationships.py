@@ -136,7 +136,7 @@ def test_cross_schema_declared_fk_preserved_when_target_absent():
     assert rel.target_column == "id"
 
 
-def test_plural_form_inference():
+def test_rule_b_app_style_id_suffix():
     tables = [
         _table(
             "public",
@@ -157,7 +157,7 @@ def test_plural_form_inference():
     assert rel.target_column == "id"
 
 
-def test_singular_form_inference():
+def test_rule_a_app_style_pk_name_match():
     tables = [
         _table(
             "public",
@@ -221,9 +221,9 @@ def test_unacceptable_pk_emits_no_edge():
         _table(
             "public",
             "orders",
-            [("id", "integer", False, True), ("user_id", "integer", False, False)],
+            [("order_id", "integer", False, True), ("user_id", "integer", False, False)],
         ),
-        _table("public", "users", [("id", "integer", False, False)]),
+        _table("public", "users", [("name", "integer", False, False)]),
     ]
     assert map_relationships(tables_no_pk, []) == []
 
@@ -275,7 +275,7 @@ def test_deterministic_ordering():
             "public",
             "orders",
             [
-                ("id", "integer", False, True),
+                ("order_id", "integer", False, True),
                 ("user_id", "integer", False, False),
                 ("product_id", "integer", False, False),
             ],
@@ -284,17 +284,17 @@ def test_deterministic_ordering():
             "public",
             "invoices",
             [
-                ("id", "integer", False, True),
-                ("customer_id", "integer", False, False),
+                ("invoice_id", "integer", False, True),
+                ("country_code", "text", False, False),
             ],
         ),
-        _table("public", "users", [("id", "integer", False, True)]),
-        _table("public", "products", [("id", "integer", False, True)]),
-        _table("public", "customers", [("id", "integer", False, True)]),
+        _table("public", "users", [("user_id", "integer", False, True)]),
+        _table("public", "products", [("product_id", "integer", False, True)]),
+        _table("public", "countries", [("country_code", "text", False, True)]),
     ]
     fks = [
-        _fk("public", "orders", "product_id", "public", "products", "id"),
-        _fk("public", "orders", "user_id", "public", "users", "id"),
+        _fk("public", "orders", "product_id", "public", "products", "product_id"),
+        _fk("public", "orders", "user_id", "public", "users", "user_id"),
     ]
 
     result = map_relationships(tables, fks)
@@ -307,7 +307,7 @@ def test_deterministic_ordering():
     assert [(r.source_schema, r.source_table, r.source_column) for r in inferred] == sorted(
         (r.source_schema, r.source_table, r.source_column) for r in inferred
     )
-    assert [r.source_column for r in inferred] == ["customer_id"]
+    assert [r.source_column for r in inferred] == ["country_code"]
 
 
 def test_empty_inputs(caplog):
@@ -322,6 +322,174 @@ def test_empty_inputs(caplog):
     assert record.declared == 0
     assert record.inferred == 0
     assert record.tables_scanned == 0
+
+
+def test_rule_a_direct_pk_name_match():
+    tables = [
+        _table(
+            "public",
+            "activities",
+            [
+                ("activity_id", "integer", False, True),
+                ("action_type", "text", False, False),
+            ],
+        ),
+        _table("public", "action_type", [("action_type", "text", False, True)]),
+    ]
+
+    result = map_relationships(tables, [])
+
+    assert len(result) == 1
+    rel = result[0]
+    assert rel.kind is RelationshipKind.INFERRED
+    assert rel.source_table == "activities"
+    assert rel.source_column == "action_type"
+    assert rel.target_table == "action_type"
+    assert rel.target_column == "action_type"
+
+
+def test_rule_b_role_prefix_match():
+    tables = [
+        _table(
+            "public",
+            "metabolism",
+            [
+                ("met_id", "integer", False, True),
+                ("enzyme_tid", "integer", False, False),
+            ],
+        ),
+        _table(
+            "public",
+            "target_dictionary",
+            [("tid", "integer", False, True)],
+        ),
+    ]
+
+    result = map_relationships(tables, [])
+
+    assert len(result) == 1
+    rel = result[0]
+    assert rel.kind is RelationshipKind.INFERRED
+    assert rel.source_column == "enzyme_tid"
+    assert rel.target_table == "target_dictionary"
+    assert rel.target_column == "tid"
+
+
+def test_combined_rules_different_targets_block_via_ambiguity():
+    tables = [
+        _table(
+            "public",
+            "events",
+            [
+                ("event_id", "integer", False, True),
+                ("user_tid", "integer", False, False),
+            ],
+        ),
+        _table("public", "user_tid", [("user_tid", "integer", False, True)]),
+        _table("public", "targets", [("tid", "integer", False, True)]),
+    ]
+
+    result = map_relationships(tables, [])
+
+    assert result == []
+
+
+def test_catch_all_pk_excluded_via_direct_pressure():
+    consumers = [
+        _table(
+            "public",
+            f"consumer_{i}",
+            [
+                (f"consumer_{i}_id", "integer", False, True),
+                ("name", "text", False, False),
+            ],
+        )
+        for i in range(16)
+    ]
+    tables = [
+        _table("public", "version", [("name", "text", False, True)]),
+        *consumers,
+    ]
+
+    result = map_relationships(tables, [])
+
+    assert result == []
+
+
+def test_catch_all_pk_excluded_via_role_prefix_pressure():
+    # 16 same-schema non-PK columns end in `_name` → Rule B pressure on
+    # `(public, name)` = 16 (>15). One of them also has a column literally
+    # named `name`, exercising Rule A through the same exclusion: the filter
+    # blocks both rules, not just the one that drove pressure over threshold.
+    consumers = [
+        _table(
+            "public",
+            f"entity_{i}",
+            [
+                (f"entity_{i}_id", "integer", False, True),
+                (f"part_{i}_name", "text", False, False),
+            ],
+        )
+        for i in range(16)
+    ]
+    consumers[0] = _table(
+        "public",
+        "entity_0",
+        [
+            ("entity_0_id", "integer", False, True),
+            ("part_0_name", "text", False, False),
+            ("name", "text", False, False),
+        ],
+    )
+    tables = [
+        _table("public", "version", [("name", "text", False, True)]),
+        *consumers,
+    ]
+
+    result = map_relationships(tables, [])
+
+    assert result == []
+
+
+def test_pk_at_or_below_threshold_remains_valid_target():
+    consumers = [
+        _table(
+            "public",
+            f"consumer_{i}",
+            [
+                (f"consumer_{i}_id", "integer", False, True),
+                ("name", "text", False, False),
+            ],
+        )
+        for i in range(15)
+    ]
+    tables = [
+        _table("public", "version", [("name", "text", False, True)]),
+        *consumers,
+    ]
+
+    result = map_relationships(tables, [])
+
+    inferred = [r for r in result if r.kind is RelationshipKind.INFERRED]
+    assert len(inferred) == 15
+    for rel in inferred:
+        assert rel.target_table == "version"
+        assert rel.target_column == "name"
+
+
+def test_pk_source_column_emits_no_inference():
+    tables = [
+        _table("public", "users", [("user_id", "integer", False, True)]),
+        _table(
+            "public",
+            "user_profiles",
+            [("user_id", "integer", False, True), ("bio", "text", True, False)],
+        ),
+    ]
+
+    result = map_relationships(tables, [])
+
+    assert result == []
 
 
 def test_logging_contract(caplog):
