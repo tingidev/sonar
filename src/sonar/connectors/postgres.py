@@ -98,15 +98,8 @@ class PostgresConnector:
 
     async def _non_system_schemas(self) -> list[str]:
         assert self._conn is not None
-        query = """
-            SELECT schema_name
-            FROM information_schema.schemata
-            WHERE schema_name NOT IN ('pg_catalog', 'information_schema')
-              AND schema_name NOT LIKE 'pg\\_%' ESCAPE '\\'
-            ORDER BY schema_name
-        """
         async with self._conn.cursor() as cur:
-            await cur.execute(query)
+            await cur.execute(_sql.NON_SYSTEM_SCHEMAS)
             rows = await cur.fetchall()
         return [r[0] for r in rows]
 
@@ -124,6 +117,7 @@ def _tables_from_rows(rows: list[dict]) -> list[Table]:
     tables: list[Table] = []
     current_key: tuple[str, str] | None = None
     current_columns: list[Column] = []
+    current_row_count: int | None = None
 
     for row in rows:
         _reject_dotted_identifier("schema", row["schema"])
@@ -136,10 +130,12 @@ def _tables_from_rows(rows: list[dict]) -> list[Table]:
                         schema=current_key[0],
                         name=current_key[1],
                         columns=tuple(current_columns),
+                        row_count=current_row_count,
                     )
                 )
             current_key = key
             current_columns = []
+            current_row_count = _row_count_from_row(row)
         current_columns.append(_column_from_row(row))
 
     if current_key is not None:
@@ -148,10 +144,21 @@ def _tables_from_rows(rows: list[dict]) -> list[Table]:
                 schema=current_key[0],
                 name=current_key[1],
                 columns=tuple(current_columns),
+                row_count=current_row_count,
             )
         )
 
     return tables
+
+
+def _row_count_from_row(row: dict) -> int | None:
+    # Postgres returns -1 from pg_class.reltuples for relations that have never
+    # had statistics collected; SQL NULL surfaces if the LEFT JOIN to pg_class
+    # missed (e.g. unusual relkind). Both map to None — see design.md D2.
+    raw = row["reltuples"]
+    if raw is None or raw < 0:
+        return None
+    return int(raw)
 
 
 def _foreign_keys_from_rows(rows: list[dict]) -> list[ForeignKey]:

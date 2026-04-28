@@ -1,17 +1,23 @@
 import datetime
 import decimal
 import json
+import os
 import uuid
 
+import psycopg
 import pytest
+import pytest_asyncio
 
+from sonar.connectors import _sql
 from sonar.connectors.postgres import (
     PostgresConnector,
     _coerce_value,
     _foreign_keys_from_rows,
+    _row_count_from_row,
     _serialize_row,
     _tables_from_rows,
 )
+from tests.conftest import DEFAULT_TEST_DATABASE_URL
 
 
 class TestValueCoercion:
@@ -51,6 +57,7 @@ def _table_row(
     schema: str = "public",
     table_name: str = "users",
     column_name: str = "id",
+    reltuples: int | None = None,
 ) -> dict:
     return {
         "schema": schema,
@@ -61,6 +68,7 @@ def _table_row(
         "is_nullable": "NO",
         "is_primary_key": True,
         "column_default": None,
+        "reltuples": reltuples,
     }
 
 
@@ -226,6 +234,102 @@ class TestForeignKeyExtraction:
         assert orders_user_fk.target_schema == "public"
         assert orders_user_fk.target_table == "users"
         assert orders_user_fk.target_column == "user_id"
+
+
+class TestRowCountMapping:
+    def test_zero_passes_through(self):
+        assert _row_count_from_row({"reltuples": 0}) == 0
+
+    def test_positive_passes_through(self):
+        assert _row_count_from_row({"reltuples": 1234}) == 1234
+
+    def test_negative_sentinel_becomes_none(self):
+        assert _row_count_from_row({"reltuples": -1}) is None
+
+    def test_sql_null_becomes_none(self):
+        assert _row_count_from_row({"reltuples": None}) is None
+
+    def test_tables_from_rows_propagates_row_count(self):
+        rows = [
+            _table_row(schema="public", table_name="users", column_name="id", reltuples=10),
+            _table_row(schema="public", table_name="users", column_name="email", reltuples=10),
+            _table_row(schema="public", table_name="orders", column_name="id", reltuples=-1),
+        ]
+        tables = {t.name: t for t in _tables_from_rows(rows)}
+        assert tables["users"].row_count == 10
+        assert tables["orders"].row_count is None
+
+
+class TestDiscoveryQueryHasNoSideEffects:
+    @pytest.mark.parametrize(
+        "query",
+        [_sql.TABLES_AND_COLUMNS, _sql.FOREIGN_KEYS, _sql.NON_SYSTEM_SCHEMAS],
+        ids=["tables_and_columns", "foreign_keys", "non_system_schemas"],
+    )
+    def test_query_does_not_call_analyze_or_vacuum(self, query):
+        upper = query.upper()
+        assert "ANALYZE" not in upper
+        assert "VACUUM" not in upper
+
+
+@pytest_asyncio.fixture
+async def admin_conn():
+    """Raw psycopg connection for test setup (CREATE TABLE, ANALYZE, DROP)."""
+    url = os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
+    conn = await psycopg.AsyncConnection.connect(url, autocommit=True)
+    try:
+        yield conn
+    finally:
+        await conn.close()
+
+
+@pytest.mark.integration
+class TestRowCountDiscovery:
+    async def test_analysed_tables_carry_row_count(self, connector, admin_conn):
+        async with admin_conn.cursor() as cur:
+            await cur.execute("ANALYZE")
+        tables = await connector.discover_tables()
+
+        for t in tables:
+            assert t.row_count is not None, f"{t.name} has no row_count after ANALYZE"
+            assert t.row_count >= 0
+
+        true_counts = {
+            "users": 3,
+            "addresses": 3,
+            "products": 6,
+            "orders": 3,
+            "order_items": 4,
+            "tags": 3,
+            "product_tags": 4,
+        }
+        by_name = {t.name: t for t in tables}
+        for name, true_count in true_counts.items():
+            estimate = by_name[name].row_count
+            # within an order of magnitude — generous bound for tiny tables
+            assert estimate <= true_count * 10 + 10
+            assert estimate >= max(0, true_count // 10 - 1)
+
+    async def test_fresh_table_without_analyze_yields_none(self, connector, admin_conn):
+        async with admin_conn.cursor() as cur:
+            await cur.execute("DROP TABLE IF EXISTS row_count_fresh")
+            await cur.execute("CREATE TABLE row_count_fresh (id int PRIMARY KEY)")
+            try:
+                tables = {t.name: t for t in await connector.discover_tables()}
+                assert tables["row_count_fresh"].row_count is None
+            finally:
+                await cur.execute("DROP TABLE row_count_fresh")
+
+    async def test_analysed_empty_table_yields_zero(self, connector, admin_conn):
+        async with admin_conn.cursor() as cur:
+            await cur.execute("DROP TABLE IF EXISTS row_count_empty")
+            await cur.execute("CREATE TABLE row_count_empty (id int PRIMARY KEY)")
+            await cur.execute("ANALYZE row_count_empty")
+            try:
+                tables = {t.name: t for t in await connector.discover_tables()}
+                assert tables["row_count_empty"].row_count == 0
+            finally:
+                await cur.execute("DROP TABLE row_count_empty")
 
 
 @pytest.mark.integration
