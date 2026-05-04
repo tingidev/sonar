@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from sonar.engine.describe import TableDescription
+from sonar.eval._types import RelationshipEdge
 from sonar.index.bundle import ContextBundle
-from sonar.relationships import RelationshipKind
+from sonar.relationships import Relationship
 
 
 @dataclass(frozen=True)
@@ -18,17 +19,6 @@ class DescriptionChange:
     grain_changed: bool
     domain_hints_added: tuple[str, ...]
     domain_hints_removed: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class RelationshipEdge:
-    source_schema: str
-    source_table: str
-    source_column: str
-    target_schema: str
-    target_table: str
-    target_column: str
-    kind: str
 
 
 @dataclass(frozen=True)
@@ -88,14 +78,14 @@ def diff_bundles(current: ContextBundle, other: ContextBundle) -> DiffReport:
     )
 
 
-def _rel_key(r: object) -> tuple[str, str, str, str, str, str]:
+def _rel_key(r: Relationship) -> tuple[str, str, str, str, str, str]:
     return (
-        r.source_schema,  # type: ignore[attr-defined]
-        r.source_table,  # type: ignore[attr-defined]
-        r.source_column,  # type: ignore[attr-defined]
-        r.target_schema,  # type: ignore[attr-defined]
-        r.target_table,  # type: ignore[attr-defined]
-        r.target_column,  # type: ignore[attr-defined]
+        r.source_schema,
+        r.source_table,
+        r.source_column,
+        r.target_schema,
+        r.target_table,
+        r.target_column,
     )
 
 
@@ -134,7 +124,5 @@ def _compare_descriptions(
 __all__ = [
     "DescriptionChange",
     "DiffReport",
-    "RelationshipEdge",
-    "RelationshipKind",
     "diff_bundles",
 ]

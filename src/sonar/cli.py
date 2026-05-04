@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import datetime as _datetime
 import importlib.util
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from sonar._dsn import scrub_dsn
 from sonar.connectors.postgres import PostgresConnector
+from sonar.connectors.types import ForeignKey, Table
 from sonar.engine.describe import DescriptionEngine
 from sonar.engine.llm import AnthropicClient, LLMConfig
 from sonar.index.bundle import (
@@ -68,6 +70,12 @@ class _ConnectorSpec:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Sonar - data context for AI agents")
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        default=False,
+        help="Enable verbose logging (INFO level)",
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     scan_parser = subparsers.add_parser("scan", help="Discover and describe a data source")
@@ -172,6 +180,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(levelname)s %(name)s %(message)s",
+    )
+
     if args.command == "scan":
         return _run_scan(args)
     if args.command == "serve":
@@ -216,11 +229,16 @@ async def _scan_pipeline(
     async with spec.connector as conn:
         tables = await conn.discover_tables()
         foreign_keys = await conn.discover_relationships()
-        samples: dict[tuple[str, str], list[dict]] = {}
-        for table in tables:
-            samples[(table.schema, table.name)] = await conn.sample_table(
-                table.schema, table.name
-            )
+
+        sem = asyncio.Semaphore(5)
+
+        async def _sample_one(t: Table) -> tuple[tuple[str, str], list[dict]]:
+            async with sem:
+                rows = await conn.sample_table(t.schema, t.name)
+            return (t.schema, t.name), rows
+
+        pairs = await asyncio.gather(*(_sample_one(t) for t in tables))
+        samples: dict[tuple[str, str], list[dict]] = dict(pairs)
 
         config = LLMConfig(max_concurrent_calls=concurrency) if concurrency else LLMConfig()
         engine = DescriptionEngine(AnthropicClient(config), config)
@@ -336,7 +354,9 @@ def _run_eval_relationships(positional: str, json_output: bool) -> int:
     return 0
 
 
-async def _collect_relationship_inputs(spec: _ConnectorSpec):
+async def _collect_relationship_inputs(
+    spec: _ConnectorSpec,
+) -> tuple[list[Table], list[ForeignKey]]:
     async with spec.connector as conn:
         tables = await conn.discover_tables()
         foreign_keys = await conn.discover_relationships()

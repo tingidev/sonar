@@ -179,7 +179,6 @@ def _decode_column(raw: dict) -> Column:
         data_type=raw["data_type"],
         nullable=raw["nullable"],
         is_primary_key=raw["is_primary_key"],
-        foreign_key=raw.get("foreign_key"),
         default=raw.get("default"),
     )
 

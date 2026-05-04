@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from sonar.connectors.types import Column, ForeignKey, Table
-from sonar.eval.relationships import RelationshipEdge, evaluate_relationships
+from sonar.eval._types import RelationshipEdge
+from sonar.eval.relationships import evaluate_relationships
 
 
 def _users() -> Table:

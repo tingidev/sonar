@@ -18,7 +18,7 @@ import psycopg.sql as _pgsql
 from psycopg.rows import dict_row
 
 from sonar._dsn import scrub_dsn
-from sonar.connectors.serialize import _coerce_value
+from sonar.connectors.serialize import _serialize_row
 from sonar.engine.describe import PIIRisk
 from sonar.index.bundle import ContextBundle
 from sonar.mcp.audit import emit_sample_audit
@@ -44,6 +44,19 @@ def make_sample_tool(
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         requested = limit if limit is not None else DEFAULT_SAMPLE_ROWS
+
+        if requested < 1:
+            emit_sample_audit(
+                outcome="rejected_invalid_limit",
+                schema=schema,
+                table=table,
+                limit_requested=requested,
+                limit_effective=None,
+                rows_returned=None,
+            )
+            raise ToolError(
+                f"sample limit {requested} is invalid; pass limit >= 1"
+            )
 
         if requested > MAX_SAMPLE_ROWS:
             emit_sample_audit(
@@ -126,8 +139,8 @@ def _redact_rows(
 ) -> list[dict[str, Any]]:
     return [
         {
-            key: (None if key in protected_columns else _coerce_value(value))
-            for key, value in row.items()
+            key: (None if key in protected_columns else value)
+            for key, value in _serialize_row(row).items()
         }
         for row in raw_rows
     ]

@@ -18,7 +18,6 @@ class Column:
     data_type: str
     nullable: bool
     is_primary_key: bool
-    foreign_key: str | None = None
     default: str | None = None
 
 

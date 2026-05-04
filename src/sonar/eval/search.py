@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from sonar.index.bundle import ContextBundle
-from sonar.mcp.tools.bundle_tools import search_tool
+from sonar.search import search_tool
 
 
 class GroundTruthError(Exception):

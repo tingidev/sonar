@@ -16,15 +16,13 @@ from sonar.eval._report import (
     format_search_human,
     format_search_json,
 )
+from sonar.eval._types import RelationshipEdge
 from sonar.eval.descriptions import DescriptionQualityReport, TableScore
-from sonar.eval.diff import DescriptionChange, DiffReport, RelationshipEdge
+from sonar.eval.diff import DescriptionChange, DiffReport
 from sonar.eval.quality import (
     ConfidenceSummary,
     GraphSummary,
     QualityReport,
-)
-from sonar.eval.relationships import (
-    RelationshipEdge as RelEdge,
 )
 from sonar.eval.relationships import (
     RelationshipReport,
@@ -102,11 +100,11 @@ class TestRelationshipsFormatters:
             precision=0.875,
             f1=0.7777,
             missed=(
-                RelEdge("public", "a", "x", "public", "b", "id"),
-                RelEdge("public", "c", "y", "public", "d", "id"),
+                RelationshipEdge("public", "a", "x", "public", "b", "id"),
+                RelationshipEdge("public", "c", "y", "public", "d", "id"),
             ),
             false_positive=(
-                RelEdge("public", "e", "z", "public", "f", "id"),
+                RelationshipEdge("public", "e", "z", "public", "f", "id"),
             ),
             per_table=(
                 TableBreakdown("public", "a", 1, 0, 1, 0),

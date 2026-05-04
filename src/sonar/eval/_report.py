@@ -6,8 +6,9 @@ import json
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
+from sonar.eval._types import RelationshipEdge
 from sonar.eval.descriptions import DescriptionQualityReport, TableScore
-from sonar.eval.diff import DescriptionChange, DiffReport, RelationshipEdge
+from sonar.eval.diff import DescriptionChange, DiffReport
 from sonar.eval.quality import ConfidenceSummary, QualityReport
 from sonar.eval.relationships import RelationshipReport, TableBreakdown
 from sonar.eval.search import SearchReport
@@ -190,21 +191,21 @@ def format_relationships_json(report: RelationshipReport, label: str) -> str:
     return _dump_json(_envelope("relationships", label, metrics, details))
 
 
-def _edge_text(edge: object) -> str:
+def _edge_text(edge: RelationshipEdge) -> str:
     return (
-        f"{edge.source_schema}.{edge.source_table}.{edge.source_column}"  # type: ignore[attr-defined]
-        f" -> {edge.target_schema}.{edge.target_table}.{edge.target_column}"  # type: ignore[attr-defined]
+        f"{edge.source_schema}.{edge.source_table}.{edge.source_column}"
+        f" -> {edge.target_schema}.{edge.target_table}.{edge.target_column}"
     )
 
 
-def _edge_dict(edge: object) -> dict[str, str]:
+def _edge_dict(edge: RelationshipEdge) -> dict[str, str]:
     return {
-        "source_schema": edge.source_schema,  # type: ignore[attr-defined]
-        "source_table": edge.source_table,  # type: ignore[attr-defined]
-        "source_column": edge.source_column,  # type: ignore[attr-defined]
-        "target_schema": edge.target_schema,  # type: ignore[attr-defined]
-        "target_table": edge.target_table,  # type: ignore[attr-defined]
-        "target_column": edge.target_column,  # type: ignore[attr-defined]
+        "source_schema": edge.source_schema,
+        "source_table": edge.source_table,
+        "source_column": edge.source_column,
+        "target_schema": edge.target_schema,
+        "target_table": edge.target_table,
+        "target_column": edge.target_column,
     }
 
 

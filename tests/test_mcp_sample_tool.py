@@ -194,6 +194,40 @@ class TestCap:
         assert records[0].limit_effective is None
 
     @pytest.mark.asyncio
+    async def test_cap_reject_zero_limit(
+        self,
+        bundle: ContextBundle,
+        fake_connect: _FakeConnect,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        sample = make_sample_tool(bundle, dsn="postgresql://user:pw@h/db")
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="sonar.mcp.audit"):
+            with pytest.raises(ToolError, match="invalid"):
+                await sample("public", "people", limit=0)
+        assert fake_connect.calls == 0
+        records = [r for r in caplog.records if r.name == "sonar.mcp.audit"]
+        assert len(records) == 1
+        assert records[0].outcome == "rejected_invalid_limit"
+
+    @pytest.mark.asyncio
+    async def test_cap_reject_negative_limit(
+        self,
+        bundle: ContextBundle,
+        fake_connect: _FakeConnect,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        sample = make_sample_tool(bundle, dsn="postgresql://user:pw@h/db")
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="sonar.mcp.audit"):
+            with pytest.raises(ToolError, match="invalid"):
+                await sample("public", "people", limit=-1)
+        assert fake_connect.calls == 0
+        records = [r for r in caplog.records if r.name == "sonar.mcp.audit"]
+        assert len(records) == 1
+        assert records[0].outcome == "rejected_invalid_limit"
+
+    @pytest.mark.asyncio
     async def test_default_limit_when_omitted(
         self,
         bundle: ContextBundle,

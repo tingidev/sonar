@@ -6,39 +6,30 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from sonar.connectors.types import ForeignKey, Table
+from sonar.eval._types import RelationshipEdge
 from sonar.relationships import Relationship, RelationshipKind, map_relationships
 
 
-@dataclass(frozen=True)
-class RelationshipEdge:
-    source_schema: str
-    source_table: str
-    source_column: str
-    target_schema: str
-    target_table: str
-    target_column: str
+def _edge_from_fk(fk: ForeignKey) -> RelationshipEdge:
+    return RelationshipEdge(
+        source_schema=fk.source_schema,
+        source_table=fk.source_table,
+        source_column=fk.source_column,
+        target_schema=fk.target_schema,
+        target_table=fk.target_table,
+        target_column=fk.target_column,
+    )
 
-    @classmethod
-    def from_fk(cls, fk: ForeignKey) -> "RelationshipEdge":
-        return cls(
-            fk.source_schema,
-            fk.source_table,
-            fk.source_column,
-            fk.target_schema,
-            fk.target_table,
-            fk.target_column,
-        )
 
-    @classmethod
-    def from_relationship(cls, r: Relationship) -> "RelationshipEdge":
-        return cls(
-            r.source_schema,
-            r.source_table,
-            r.source_column,
-            r.target_schema,
-            r.target_table,
-            r.target_column,
-        )
+def _edge_from_relationship(r: Relationship) -> RelationshipEdge:
+    return RelationshipEdge(
+        source_schema=r.source_schema,
+        source_table=r.source_table,
+        source_column=r.source_column,
+        target_schema=r.target_schema,
+        target_table=r.target_table,
+        target_column=r.target_column,
+    )
 
 
 @dataclass(frozen=True)
@@ -68,11 +59,11 @@ def evaluate_relationships(
     tables: list[Table],
     declared_foreign_keys: list[ForeignKey],
 ) -> RelationshipReport:
-    declared_set = {RelationshipEdge.from_fk(fk) for fk in declared_foreign_keys}
+    declared_set = {_edge_from_fk(fk) for fk in declared_foreign_keys}
     inferred = [
         r for r in map_relationships(tables, []) if r.kind is RelationshipKind.INFERRED
     ]
-    inferred_set = {RelationshipEdge.from_relationship(r) for r in inferred}
+    inferred_set = {_edge_from_relationship(r) for r in inferred}
 
     matched = declared_set & inferred_set
     missed = declared_set - inferred_set
