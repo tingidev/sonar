@@ -553,3 +553,67 @@ The second data-source connector — Snowflake schema discovery, foreign-key ext
 - Private cross-import tech debt (`_coerce_value`) resolved — shared `_serialize_row` used by both connectors and the MCP sample tool.
 
 ---
+
+## Evaluation toolkit
+
+### What we're building
+
+The `sonar eval` command — a measurement layer over the artifacts the rest of Sonar produces. Five modes: bundle quality report (default), relationship recall/precision against declared FKs, search relevance against curated YAML ground truth, structural bundle diff, and LLM-as-judge description scoring. Reads the bundle and (for one mode) connects to a live database; never writes a bundle, never modifies the pipeline. Downstream consumers: operators after a `sonar scan`, prompt-change regression detection, future CI gating built on top of `--json` output.
+
+### Architecture
+
+```
+ContextBundle / live DB ── eval modules ── _report formatters ── CLI ── stdout
+```
+
+Five modules under `src/sonar/eval/`, one per mode (`quality.py`, `relationships.py`, `search.py`, `diff.py`, `descriptions.py`), plus shared `_report.py` for formatting and `_prompts.py` for the judge rubric. Each mode is a pure function from inputs to a typed report dataclass; CLI wiring loads inputs, dispatches to one mode, and pipes the report through human or JSON formatters. The eval package depends on `connectors.types`, `index`, `relationships`, `engine.llm`, and `mcp.tools.bundle_tools` (search reuses the existing `search_tool`), but never on `mcp.server`. Reads only.
+
+### Key decisions
+
+- **One module per mode, not a flat `eval.py`.** Five modes in one file would exceed 400 lines by the second mode and tangle imports. Per-mode modules also let tests stay tight. Re-evaluate if a sixth mode breaks the one-mode-one-module mapping.
+- **Flag-based mode selection on a single subcommand, not five subcommands.** `sonar eval`, `sonar eval --relationships <dsn>`, `sonar eval --search <yaml>`, etc. Lighter CLI surface, mutually exclusive group enforces one mode per call. Argparse `add_mutually_exclusive_group()` does the work.
+- **YAML for search ground truth, not TOML or JSON.** Hand-curated files; PyYAML's list-of-mappings is the most readable shape for query→expected pairs. PyYAML added as a main dependency (lightweight, stable). `safe_load` only.
+- **Declared-FK hold-out for relationship eval, no external ground-truth file.** `discover_relationships()` from the connector is ground truth; `map_relationships(tables, [])` is the inference under test. The same methodology used in the #7 explore session, now reproducible. External ground truth becomes necessary only when a database with known undeclared relationships needs evaluation.
+- **Undirected BFS reachability.** Agents traverse FKs both ways via the `relationships` MCP tool; directed reachability would understate connectivity. Mean reachable per starting node = mean component size weighted by membership.
+- **Boolean text-changed flag in the diff, not a text diff.** LLM descriptions vary in wording between runs; a line-level diff is noise. Confidence delta + text-changed flag is the useful structural signal. Reversibility is cheap if richer comparison is needed later.
+- **Same-model judge (Haiku scoring Haiku), advisory only.** Sonnet at 5x cost makes the feature too expensive for casual runs and self-reinforcement bias cancels in diffs (constant across runs by construction). The toolkit defines no pass/fail threshold; the explicit limitation is documented in the report itself ("same-model judge — relative comparison, not absolute").
+- **Judge sees schema + description only, never row samples.** The bundle doesn't persist samples (PII-off-disk posture). Same information surface an agent would see through MCP tools.
+- **Eval reads, never writes.** No bundle mutation, no description regeneration, no prompt-tuning loops. Measurement is a prerequisite to optimization, not the optimization itself.
+
+### Implementation details
+
+- **Frozen dataclasses for every report shape.** `QualityReport`, `RelationshipReport`, `SearchReport`, `DiffReport`, `DescriptionQualityReport` — all `dataclass(frozen=True)`. Tuples for repeated fields, never lists. JSON formatter walks the structure via `_to_jsonable` (`is_dataclass` → `asdict`, recurse).
+- **`_envelope("mode", bundle, metrics, details)` for JSON.** Common shape across all modes, mode-specific contents under `metrics` (aggregate numbers) and `details` (per-item breakdown).
+- **Search reuses `search_tool` directly.** No re-implementation of the ranking logic — `from sonar.mcp.tools.bundle_tools import search_tool`. Eval is testing the same code paths an agent calls.
+- **Relationship eval matches on the full 6-tuple.** `(source_schema, source_table, source_column, target_schema, target_table, target_column)`. Case-sensitive; the connector preserves case as-returned. `RelationshipEdge` dataclass for set arithmetic (`declared_set & inferred_set`, `declared_set - inferred_set`).
+- **Confidence summaries skip null descriptions.** `ConfidenceSummary | None` — `None` when no non-null descriptions exist. Formatter handles the `None` branch.
+- **Judge concurrency reuses `LLMConfig.max_concurrent_calls`.** Same semaphore pattern as `DescriptionEngine.describe_database`; same `FakeLLMClient` shape used in tests.
+- **Score clamping at the parse boundary.** `_clamp(value)` ensures the judge's three floats land in `[0.0, 1.0]` even if the LLM emits 1.5 or -0.2. Out-of-range values are clamped, not rejected.
+- **DSN scrubbing on `--relationships` errors.** `scrub_dsn(message, positional)` matches the `sonar scan` posture; the raw DSN never reaches stderr on connection failure.
+- **`evaluate_descriptions` is wrapped at the CLI boundary.** `try/except Exception` around `asyncio.run(...)` returns 1 with a clean stderr line on transport errors. A separate post-success check exits 1 when `scored_count == 0 and judge_failures > 0` (total failure shouldn't masquerade as a clean run with all-zero means).
+- **ChEMBL ground-truth file lives at `eval/chembl_search.yaml`.** Project root, not package data — it's a reference example, not something pip users import. 26 queries spanning molecules, targets, assays, activities, mechanisms, formulations, documents.
+
+### What goes wrong
+
+- **LLM-judge inter-run variance.** Haiku scoring the same description twice may differ by 0.1-0.2 per dimension. Mitigated by structured scores (not prose), advisory-only positioning, and the diff use case (variance is what we'd report). Documented limitation: relative comparison, not absolute. If variance is measured above 0.15 on the same bundle, switch to multi-run averaging.
+- **ChEMBL bias.** All metrics calibrated against one canonical-name schema. App-style schemas (Rails/Django, `id` PKs) have different characteristics, especially for the relationship heuristic. The toolkit accepts any database; the ChEMBL ground truth is a shipped example, not the only option.
+- **Search ground truth is curated knowledge.** The YAML file encodes a human's belief about which tables match which queries. As ChEMBL evolves (or as users adapt the file to their own database), expected lists drift. Re-curate when the schema changes; treat the file as a living artifact.
+- **`--relationships` requires a live DB.** Operators without DB access can only run the bundle-side modes. Acceptable trade-off: external ground-truth files for relationships are deferred until someone needs them (e.g., Snowflake databases where FKs are informational-only and often missing).
+- **Same-model judge bias is not zero.** It cancels in diffs but not in absolute scoring. A run that scores 0.85 on accuracy might score 0.72 with a different judge. The report's footer flags this so operators don't over-interpret single-run absolute numbers.
+- **`yaml.safe_load` accepts a `null` top-level.** A file with just whitespace or comments parses to `None`. The validator catches this (raises `GroundTruthError`) but the error message is generic. Acceptable for a hand-curated file; could be sharpened if user complaints surface.
+
+### Decisions made
+
+- New `src/sonar/eval/` package, one module per mode plus shared `_report.py` and `_prompts.py`.
+- `sonar eval` subcommand with mutually-exclusive mode flags + orthogonal `--json` and `--bundle-dir`.
+- YAML ground truth at project-root `eval/`, not package data; PyYAML as main dependency.
+- Declared-FK hold-out for relationship eval; database is the ground truth.
+- Undirected BFS for reachability; matches agent navigation model.
+- Boolean text-changed flag in diff; no deep text comparison of LLM-generated bodies.
+- Haiku judging Haiku; advisory only; no pass/fail thresholds; same-model bias acknowledged.
+- Judge sees schema + description only; row samples never sent (PII-off-disk posture).
+- 26 ChEMBL queries shipped as reference; users bring their own ground truth for their own database.
+- DSN scrubbing on the `--relationships` error path; consistent with `sonar scan`.
+- Total-judge-failure on `--descriptions` exits non-zero with a stderr warning.
+
+---

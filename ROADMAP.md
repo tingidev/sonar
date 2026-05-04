@@ -13,18 +13,14 @@ Postgres-to-MCP context pipeline, end-to-end.
 5. ~~`mcp-server`~~ — Expose 5 tools (discover, describe, relationships, search, sample) over MCP. Wire `sonar serve`.
 6. ~~`release-polish`~~ — README examples, GitHub Actions CI (lint + test), one end-to-end demo.
 
-## Phase 2 — Depth and breadth
+## Phase 2 — Depth and breadth (complete)
 
 Inferred relationships, second connector, evaluation toolkit.
 
 7. ~~`inferred-relationships`~~ — Two-rule combined heuristic (direct PK-name match + role-prefix) with catch-all PK filter. Recall 8.8% to 68.1% at 92.5% precision on ChEMBL. Value-overlap piece deferred as `relationship-overlap-tiebreaker`. (archived 2026-04-28)
 8. ~~`row-count-discovery`~~ — Populate `row_count` during schema discovery. (archived 2026-04-28 — `pg_class.reltuples`, no side effects on the user's DB)
 9. ~~`snowflake-connector`~~ — Snowflake data source adapter. Shared connector types extracted, INFORMATION_SCHEMA discovery, optional dependency with dispatch-time guard, two-tier test strategy (fakesnow + live). (archived 2026-05-04)
-10. `evaluation-toolkit` — Tools to measure how well agents navigate the context layer. Discovery accuracy, context relevance, coverage metrics. Depends on having two connectors and richer relationships to evaluate against.
-
-### Phase 2 sequencing
-
-- 7, 8, 9 complete. 10 is the remaining Phase 2 change.
+10. ~~`evaluation-toolkit`~~ — `sonar eval` subcommand with five modes: bundle quality report (default), relationship recall/precision against declared FKs, search relevance against curated YAML ground truth, structural bundle diff, LLM-as-judge description scoring. Reads bundles only; never mutates the pipeline. Ships with a 26-query ChEMBL search ground-truth file. (archived 2026-05-04)
 
 ### Deferred (Phase 2+)
 
