@@ -1,4 +1,10 @@
-## ADDED Requirements
+# snowflake-connector Specification
+
+## Purpose
+
+The Snowflake connector adapts a live Snowflake account to Sonar's shared connector contract: discovery of tables and foreign keys via INFORMATION_SCHEMA, a coerced row-sampling path, and CLI dispatch from a `snowflake://` URL or the bare `snowflake` keyword (env-var auth). It produces the same `Table`, `ForeignKey`, and serialized-row shapes as the Postgres connector so downstream capabilities operate uniformly across data sources.
+
+## Requirements
 
 ### Requirement: Snowflake connector implements the data-source connector contract
 
