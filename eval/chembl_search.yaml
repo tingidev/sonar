@@ -1,0 +1,123 @@
+# Search-relevance ground truth for the ChEMBL Postgres database.
+#
+# Each entry pairs a natural-language query an analyst might type into
+# `search_tool` against the set of tables they would expect to find. Schema is
+# `public` (default for the ChEMBL Postgres dump). Entries were curated against
+# ChEMBL 35 schema documentation; review and update when ChEMBL is upgraded.
+#
+# Format: list of {query, expected: [<schema.table>, ...]}.
+queries:
+  # --- Molecules / compounds ---
+  - query: molecule
+    expected:
+      - public.molecule_dictionary
+      - public.molecule_synonyms
+      - public.molecule_hierarchy
+  - query: compound
+    expected:
+      - public.compound_structures
+      - public.compound_properties
+      - public.compound_records
+  - query: structure
+    expected:
+      - public.compound_structures
+  - query: synonym
+    expected:
+      - public.molecule_synonyms
+      - public.component_synonyms
+  - query: SMILES
+    expected:
+      - public.compound_structures
+  - query: InChI
+    expected:
+      - public.compound_structures
+  - query: chembl_id
+    expected:
+      - public.chembl_id_lookup
+  - query: molecular weight
+    expected:
+      - public.compound_properties
+  - query: hierarchy
+    expected:
+      - public.molecule_hierarchy
+
+  # --- Targets ---
+  - query: target
+    expected:
+      - public.target_dictionary
+      - public.target_components
+      - public.target_relations
+      - public.target_type
+  - query: protein
+    expected:
+      - public.protein_classification
+      - public.protein_family_classification
+      - public.target_dictionary
+  - query: organism
+    expected:
+      - public.target_dictionary
+      - public.organism_class
+  - query: component
+    expected:
+      - public.component_sequences
+      - public.target_components
+      - public.component_synonyms
+      - public.component_class
+
+  # --- Assays / activities ---
+  - query: assay
+    expected:
+      - public.assays
+      - public.assay_parameters
+      - public.assay_class_map
+      - public.assay_classification
+  - query: activity
+    expected:
+      - public.activities
+      - public.activity_properties
+      - public.activity_supp
+      - public.activity_smid
+  - query: bioactivity
+    expected:
+      - public.activities
+  - query: IC50
+    expected:
+      - public.activities
+
+  # --- Mechanism, indications, drugs ---
+  - query: mechanism of action
+    expected:
+      - public.drug_mechanism
+  - query: drug indication
+    expected:
+      - public.drug_indication
+  - query: clinical
+    expected:
+      - public.drug_indication
+      - public.molecule_dictionary
+  - query: ATC classification
+    expected:
+      - public.atc_classification
+      - public.molecule_atc_classification
+
+  # --- Formulations / products ---
+  - query: formulation
+    expected:
+      - public.formulations
+  - query: product
+    expected:
+      - public.products
+      - public.formulations
+
+  # --- Documents / sources ---
+  - query: document
+    expected:
+      - public.docs
+      - public.compound_records
+  - query: publication
+    expected:
+      - public.docs
+  - query: source
+    expected:
+      - public.source
+      - public.compound_records

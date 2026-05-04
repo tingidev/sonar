@@ -100,6 +100,48 @@ def main(argv: list[str] | None = None) -> int:
         help="Max concurrent LLM calls during description (default: 5)",
     )
 
+    eval_parser = subparsers.add_parser("eval", help="Run evaluation reports on a bundle")
+    eval_parser.add_argument(
+        "--bundle-dir",
+        dest="bundle_dir",
+        default=".sonar",
+        help="Bundle directory to evaluate (default: .sonar/)",
+    )
+    eval_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Output structured JSON instead of human-readable text",
+    )
+    mode_group = eval_parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--relationships",
+        dest="relationships_dsn",
+        metavar="DSN",
+        default=None,
+        help="Score relationship inference against the live database's declared FKs",
+    )
+    mode_group.add_argument(
+        "--search",
+        dest="search_path",
+        metavar="GROUND_TRUTH",
+        default=None,
+        help="Score search relevance against a YAML ground-truth file",
+    )
+    mode_group.add_argument(
+        "--diff",
+        dest="diff_other",
+        metavar="OTHER_BUNDLE_DIR",
+        default=None,
+        help="Diff the current bundle against another bundle directory",
+    )
+    mode_group.add_argument(
+        "--descriptions",
+        dest="descriptions_mode",
+        action="store_true",
+        help="Score description quality via LLM-as-judge",
+    )
+
     serve_parser = subparsers.add_parser("serve", help="Start the MCP server over stdio")
     serve_parser.add_argument(
         "dsn",
@@ -134,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_scan(args)
     if args.command == "serve":
         return _run_serve(args)
+    if args.command == "eval":
+        return _run_eval(args)
     parser.print_help()
     return 0
 
@@ -221,6 +265,165 @@ def _print_scan_summary(
             f"{dropped} foreign keys reference tables outside database "
             f"{bound_db} and were excluded"
         )
+
+
+def _run_eval(args: argparse.Namespace) -> int:
+    bundle_dir = Path(args.bundle_dir)
+
+    if args.relationships_dsn is not None:
+        return _run_eval_relationships(args.relationships_dsn, args.json_output)
+    if args.search_path is not None:
+        return _run_eval_search(bundle_dir, Path(args.search_path), args.json_output)
+    if args.diff_other is not None:
+        return _run_eval_diff(bundle_dir, Path(args.diff_other), args.json_output)
+    if args.descriptions_mode:
+        return _run_eval_descriptions(bundle_dir, args.json_output)
+    return _run_eval_quality(bundle_dir, args.json_output)
+
+
+def _load_bundle_for_eval(bundle_dir: Path) -> ContextBundle | None:
+    try:
+        bundle = ContextStore(bundle_dir).read()
+    except (BundleIntegrityError, BundleVersionError) as exc:
+        print(f"eval failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return None
+    if bundle is None:
+        print(
+            f"eval: no bundle found at {bundle_dir}; run `sonar scan` first",
+            file=sys.stderr,
+        )
+        return None
+    return bundle
+
+
+def _run_eval_quality(bundle_dir: Path, json_output: bool) -> int:
+    from sonar.eval._report import format_quality_human, format_quality_json
+    from sonar.eval.quality import build_quality_report
+
+    bundle = _load_bundle_for_eval(bundle_dir)
+    if bundle is None:
+        return 1
+    report = build_quality_report(bundle, str(bundle_dir))
+    if json_output:
+        print(format_quality_json(report))
+    else:
+        print(format_quality_human(report))
+    return 0
+
+
+def _run_eval_relationships(positional: str, json_output: bool) -> int:
+    from sonar.eval._report import format_relationships_human, format_relationships_json
+    from sonar.eval.relationships import evaluate_relationships
+
+    try:
+        spec = _select_connector(positional)
+    except _DispatchError as exc:
+        print(f"eval: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        tables, foreign_keys = asyncio.run(_collect_relationship_inputs(spec))
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        message = scrub_dsn(f"{type(exc).__name__}: {exc}", positional)
+        print(f"eval failed: {message}", file=sys.stderr)
+        return 1
+
+    report = evaluate_relationships(tables, foreign_keys)
+    if json_output:
+        print(format_relationships_json(report, spec.database_label))
+    else:
+        print(format_relationships_human(report, spec.database_label))
+    return 0
+
+
+async def _collect_relationship_inputs(spec: _ConnectorSpec):
+    async with spec.connector as conn:
+        tables = await conn.discover_tables()
+        foreign_keys = await conn.discover_relationships()
+    return tables, foreign_keys
+
+
+def _run_eval_search(
+    bundle_dir: Path, ground_truth_path: Path, json_output: bool
+) -> int:
+    from sonar.eval._report import format_search_human, format_search_json
+    from sonar.eval.search import GroundTruthError, evaluate_search, load_ground_truth
+
+    bundle = _load_bundle_for_eval(bundle_dir)
+    if bundle is None:
+        return 1
+    try:
+        ground_truth = load_ground_truth(ground_truth_path)
+    except (OSError, GroundTruthError) as exc:
+        print(f"eval failed: {exc}", file=sys.stderr)
+        return 1
+
+    report = evaluate_search(bundle, ground_truth)
+    if json_output:
+        print(format_search_json(report, str(bundle_dir)))
+    else:
+        print(format_search_human(report, str(bundle_dir)))
+    return 0
+
+
+def _run_eval_diff(
+    bundle_dir: Path, other_dir: Path, json_output: bool
+) -> int:
+    from sonar.eval._report import format_diff_human, format_diff_json
+    from sonar.eval.diff import diff_bundles
+
+    current = _load_bundle_for_eval(bundle_dir)
+    if current is None:
+        return 1
+    try:
+        other = ContextStore(other_dir).read()
+    except (BundleIntegrityError, BundleVersionError) as exc:
+        print(f"eval failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    if other is None:
+        print(f"eval: no bundle found at {other_dir}", file=sys.stderr)
+        return 1
+
+    report = diff_bundles(current, other)
+    if json_output:
+        print(format_diff_json(report, str(bundle_dir), str(other_dir)))
+    else:
+        print(format_diff_human(report, str(bundle_dir), str(other_dir)))
+    return 0
+
+
+def _run_eval_descriptions(bundle_dir: Path, json_output: bool) -> int:
+    from sonar.eval._report import (
+        format_descriptions_human,
+        format_descriptions_json,
+    )
+    from sonar.eval.descriptions import evaluate_descriptions
+
+    bundle = _load_bundle_for_eval(bundle_dir)
+    if bundle is None:
+        return 1
+
+    config = LLMConfig()
+    client = AnthropicClient(config)
+    try:
+        report = asyncio.run(evaluate_descriptions(bundle, client, config=config))
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        print(f"eval failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    if json_output:
+        print(format_descriptions_json(report, str(bundle_dir)))
+    else:
+        print(format_descriptions_human(report, str(bundle_dir)))
+
+    if report.scored_count == 0 and report.judge_failures > 0:
+        print(
+            f"eval: judge failed on all {report.judge_failures} tables; "
+            "no scores produced",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
 
 
 def _run_serve(args: argparse.Namespace) -> int:

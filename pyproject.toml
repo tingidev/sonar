@@ -19,6 +19,7 @@ python = "^3.11"
 anthropic = "^0.49"
 psycopg = {version = "^3.2", extras = ["binary"]}
 mcp = "^1.0"
+PyYAML = "^6.0"
 snowflake-connector-python = {version = "^3.12", optional = true}
 
 [tool.poetry.extras]
