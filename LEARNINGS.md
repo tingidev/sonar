@@ -468,3 +468,88 @@ The fifth real capability — Sonar's agent-facing surface and the thesis-valida
 - Unit tests monkeypatch `psycopg.AsyncConnection.connect` for every PII / cap / scrub path; integration tests marked `@pytest.mark.integration` and run against docker fixture.
 
 ---
+
+## Snowflake Connector
+
+### What we're building
+
+The second data-source connector — Snowflake schema discovery, foreign-key extraction, and row sampling behind an optional dependency. Downstream consumers (`relationship-mapping`, `description-engine`, `context-index`, `mcp-server`) operate on Snowflake output without branching because the connector emits the same shared `Table`/`ForeignKey`/`Column` dataclasses as Postgres. This is also the change that extracted the shared types module — the connector "abstraction" stopped being imagined and became a real shared surface.
+
+### Architecture
+
+- **Inputs:** Snowflake `connect()` kwargs (from a URL or curated env vars), resolved at CLI dispatch.
+- **Outputs:** same `list[Table]`, `list[ForeignKey]`, `list[dict]` shapes as `PostgresConnector`.
+- **Shape decisions:**
+  1. **2-level identifiers.** The database is connector config (bound at `connect()` time); `Table.schema` and `Table.name` carry the Snowflake schema and table. Bundle keys, MCP tool signatures, and relationship graphs stay byte-identical to Postgres. Cross-database FKs are dropped with a scan-summary note, not emitted as partial records.
+  2. **Async via `asyncio.to_thread`.** The sync `snowflake-connector-python` driver is wrapped in `to_thread` for every query, keeping the connector async-context-manager-shaped without blocking the event loop. The `aio` variant exists but is immature.
+  3. **Shared types extracted, no Protocol.** `Column`, `Table`, `ForeignKey` live in `connectors/types.py`; `_coerce_value`/`_serialize_row` in `connectors/serialize.py`. Both connectors import from there. No `Connector` ABC — two implementations aren't enough to commit to a polymorphic interface.
+
+### Key decisions
+
+- **Shared types module, no Protocol (D1).** The 14 import sites that reached into `connectors.postgres` already treated the dataclasses as connector-agnostic — moving them to a shared module fixed the leak without committing to an interface no consumer calls polymorphically. A third connector or a multi-source scan command is the revival trigger.
+
+- **Database in config, not in `Table` shape (D2).** Adding `database` to `Table` would touch every consumer, change the on-disk bundle format (expensive reversal), and enable "scan two databases at once" — a feature nobody has asked for. Snowflake's own user model lives within one database at a time. Cross-database FKs are dropped and surfaced in the scan summary rather than buried in logs.
+
+- **Three dispatch forms, no ambient auto-detect (D3).** `postgresql://...`, `snowflake://...`, and bare `snowflake`. Auto-detecting from `SNOWFLAKE_ACCOUNT` env var would silently switch connectors for users with day-job env vars set. The bare keyword is explicit intent, not a URL pretending to carry credentials it doesn't have.
+
+- **Curated 10-var env set over driver pass-through (D3).** The contract is `SNOWFLAKE_ACCOUNT`, `_USER`, `_AUTHENTICATOR`, `_PASSWORD`, `_PRIVATE_KEY_PATH`, `_PRIVATE_KEY_PASSPHRASE`, `_TOKEN`, `_DATABASE`, `_SCHEMA`, `_WAREHOUSE`, `_ROLE`. Unknown `SNOWFLAKE_*` vars are silently ignored. If the driver renames a kwarg, one row changes in the mapping table; user shell configs stay stable. Adding an env var is a one-PR change.
+
+- **Optional dependency with dispatch-time guard (D4).** `snowflake-connector-python` is heavy (transitive `pyarrow`, `cryptography`). Gated behind `[tool.poetry.extras] snowflake`. The guard runs at CLI dispatch — `importlib.util.find_spec("snowflake.connector")` checked before any credentials are read — so users find out before typing passwords, not after. The connector class itself assumes the import succeeded.
+
+- **`asyncio.to_thread` over native async (D5).** `snowflake.connector.aio` is newer and less battle-tested. `to_thread` overhead is irrelevant for a one-shot scan issuing a handful of large queries. Swap is a local change when the async variant matures.
+
+- **Two-tier test strategy (D6).** fakesnow (DuckDB-backed Snowflake emulator) runs on every PR — "clone and run," no credentials. Live-account smoke tests tagged `@pytest.mark.snowflake_live`, skipped by default, run on push-to-main and `workflow_dispatch` only. PRs from forks never see credentials. fakesnow's known gap: it accepts more permissive SQL than real Snowflake, so false positives are possible — the live tier closes that loop.
+
+- **Case preservation (D8).** Snowflake folds unquoted identifiers to UPPERCASE. The connector preserves as-returned — `MOLECULE_DICTIONARY` for Snowflake, `molecule_dictionary` for Postgres. The only behaviour that always round-trips correctly for downstream SQL queries.
+
+### Implementation details
+
+- **`_row_get` case-flexible dict lookup.** Snowflake's cursor returns column names as UPPERCASE; fakesnow may return lowercase. `_row_get(row, "schema")` tries the key as-given, then UPPER. Breaks only if a driver returns mixed-case column names (neither convention), which no known Snowflake driver does.
+
+- **ROW_COUNT availability probe.** Real Snowflake has `INFORMATION_SCHEMA.TABLES.ROW_COUNT`; fakesnow doesn't. The connector probes at connect time via `ROW_COUNT_AVAILABLE_PROBE` and substitutes `CAST(NULL AS BIGINT)` in the discovery query when missing. The template approach keeps one query string with a conditional expression, not two fully duplicated queries.
+
+- **`_quote_identifier` for Snowflake SQL.** Postgres has `psycopg.sql.Identifier`; the Snowflake sync driver has no equivalent. A local `_quote_identifier(name)` wraps in double quotes and escapes embedded quotes. Null bytes rejected explicitly — the only character that can't be quoted safely. `sample_table` composes SQL as `f"SELECT * FROM {_quote_identifier(schema)}.{_quote_identifier(table)} LIMIT {int(limit)}"` — the `int()` cast prevents injection via a non-integer limit.
+
+- **Cross-database FK detection via case-insensitive comparison.** Snowflake folds unquoted identifiers, so `INFORMATION_SCHEMA` can return the database name in different case than what the user supplied to `connect()`. `target_database.upper() != bound_database.upper()` catches the mismatch. NULL target endpoints (from the LEFT JOIN failing on cross-database scope) serve as a second confirmation signal.
+
+- **`_reject_dotted_identifier` reused from types module.** Both Postgres and Snowflake connectors call the same guard. Bundle key encoding (`schema.table`) is the constraint — a dotted identifier would be ambiguous on disk. The guard is at the connector boundary so corruption never enters the pipeline.
+
+- **Lazy import of `SnowflakeConnector` inside `_select_connector`.** The `import snowflake.connector` at the top of `snowflake.py` would fail if the extra isn't installed. Deferring the import to after `_ensure_snowflake_driver()` passes means Postgres-only users never touch the module.
+
+- **`_serialize_row` over per-connector coercion.** Extracted from the Postgres connector's `_coerce_value` pattern. Both connectors call `_serialize_row(row)` on sampled dicts — same `UUID -> str`, `datetime -> ISO`, `Decimal -> float`, `bytes -> "<binary>"` rules. The MCP sample tool also imports from the shared module, resolving the private cross-import tech debt from the mcp-server change.
+
+- **`_snowflake_label` builds a credential-free display string.** `user@account/database/schema` — never includes password. Same posture as `format_database_label` for Postgres DSNs. Used in scan summary and error messages.
+
+- **`sonar serve` accepts Snowflake positionals for dispatch consistency but runs bundle-only.** The live sample tool is Postgres-only (it imports `psycopg`). Snowflake positionals are validated at dispatch (same grammar, same error messages) but `dsn_for_sample_tool` stays `None`. When a Snowflake-native sample tool ships, the wiring is already in place.
+
+### What goes wrong
+
+- **fakesnow false positives.** A query that passes fakesnow can fail against real Snowflake — fakesnow's DuckDB engine accepts more permissive SQL. The live tier is the safety net, but it only runs post-merge. Until secrets are configured, the live tier is untested. First real-account run is the explicit verification gate.
+
+- **UPPERCASE identifiers in bundles look alien.** Snowflake discovery returns `MOLECULE_DICTIONARY`, `MOLREGNO`, etc. Bundles, MCP tool responses, and descriptions all carry uppercase names. Cosmetically jarring next to Postgres lowercase, but functionally correct. A normalisation layer could be added downstream if users report confusion.
+
+- **Stale ROW_COUNT.** Snowflake's `INFORMATION_SCHEMA.TABLES.ROW_COUNT` may be stale for recently-modified tables. Same looseness as Postgres `reltuples` — "good enough for triage" is the stated contract.
+
+- **Cross-database FK information loss.** Dropped FKs are surfaced in the scan summary but not in the bundle. A database with heavy cross-database FK usage loses that graph context. The user can re-scan against the other database and get a second bundle.
+
+- **Env-var auth misconfiguration with multiple Snowflake targets.** A user switching between two Snowflake accounts by toggling env vars can connect to the wrong one. The bare `snowflake` keyword is explicit, but the vars themselves are ambient. The deferred `connector-config-profiles` (ROADMAP) is the long-term fix.
+
+- **No live-tier CI yet.** Task 8.4 is deferred — no Snowflake account available. The skip-when-credentials-absent path is verified locally; the workflow is wired and will run the first time secrets are configured.
+
+### Decisions made
+
+- Shared `connectors/types.py` and `connectors/serialize.py`; no Connector Protocol.
+- 2-level identifiers (schema, table); database is connector config, not table shape.
+- Three CLI dispatch forms: `postgresql://`, `snowflake://`, bare `snowflake`. No ambient auto-detection.
+- Curated 10-var env set; unknown `SNOWFLAKE_*` vars silently ignored.
+- Optional dependency via Poetry extras; dispatch-time guard before credential read.
+- `asyncio.to_thread` wrapping the sync driver; native async deferred to driver maturity.
+- fakesnow for every PR; live-account tests on push-to-main + `workflow_dispatch` only.
+- Case preserved as-returned from INFORMATION_SCHEMA; no normalisation.
+- ROW_COUNT from INFORMATION_SCHEMA.TABLES with probe-based fallback for fakesnow.
+- Cross-database FKs dropped and surfaced in scan summary, not emitted as partial records.
+- Local `_quote_identifier` for Snowflake SQL; null-byte rejection; `int()` cast on limit.
+- `sonar serve` accepts Snowflake dispatch grammar for consistency; live sample tool is Postgres-only until a Snowflake-native one ships.
+- Private cross-import tech debt (`_coerce_value`) resolved — shared `_serialize_row` used by both connectors and the MCP sample tool.
+
+---

@@ -19,7 +19,7 @@ Inferred relationships, second connector, evaluation toolkit.
 
 7. `inferred-relationships` — Enrich the naming heuristic with PK-column-name matching (canonical shared columns like `molregno`, `tid`, `record_id`) and role-prefix patterns (`enzyme_tid` → `tid`). Adds a precision filter for catch-all PKs (e.g. `version.name`). Extends `relationship-mapping`; keeps the existing binary `declared | inferred` kind. ChEMBL evidence: current `<col>_id` → `<table>` rule recovers 8.8% of declared FKs (8/91); the enriched rule recovers ~68% (62/91) at ~73% precision. The original line conflated this with value-overlap; that piece moved to Deferred below.
 8. ~~`row-count-discovery`~~ — Populate `row_count` during schema discovery. (archived 2026-04-28 — `pg_class.reltuples`, no side effects on the user's DB)
-9. `snowflake-connector` *(in flight)* — Snowflake data source adapter. Introduces connector abstraction if not already clean enough, then implements Snowflake-specific discovery (INFORMATION_SCHEMA queries, stage/pipe objects, Snowflake-native FKs). Requires `snowflake-connector-python` dependency.
+9. ~~`snowflake-connector`~~ — Snowflake data source adapter. Shared connector types extracted, INFORMATION_SCHEMA discovery, optional dependency with dispatch-time guard, two-tier test strategy (fakesnow + live). (archived 2026-05-04)
 10. `evaluation-toolkit` — Tools to measure how well agents navigate the context layer. Discovery accuracy, context relevance, coverage metrics. Depends on having two connectors and richer relationships to evaluate against.
 
 ### Phase 2 sequencing
