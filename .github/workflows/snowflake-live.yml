@@ -1,0 +1,45 @@
+# Live Snowflake smoke tests. Runs on push-to-main and manual trigger only —
+# never on PR triggers from forks, so credentials are never exposed to fork CI.
+#
+# Required repository secrets (set under Settings -> Secrets and variables -> Actions):
+#
+# - SNOWFLAKE_ACCOUNT      account locator (e.g. xy12345.us-east-1.aws)
+# - SNOWFLAKE_USER         service-account user with USAGE on SNOWFLAKE_SAMPLE_DATA
+# - SNOWFLAKE_PASSWORD     OR (SNOWFLAKE_PRIVATE_KEY_PATH + SNOWFLAKE_PRIVATE_KEY_PASSPHRASE)
+# - SNOWFLAKE_WAREHOUSE    any small warehouse (XS is fine)
+# - SNOWFLAKE_ROLE         (optional)
+#
+# The job auto-skips if credentials aren't present in the environment, so it's
+# safe to leave the workflow active even without secrets configured.
+
+name: Snowflake Live
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  snowflake-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Install dependencies (with snowflake extra)
+        run: poetry install --no-interaction -E snowflake
+      - name: Run live Snowflake tests
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+          SNOWFLAKE_PRIVATE_KEY_PATH: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PATH }}
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+          SNOWFLAKE_AUTHENTICATOR: ${{ secrets.SNOWFLAKE_AUTHENTICATOR }}
+          SNOWFLAKE_TOKEN: ${{ secrets.SNOWFLAKE_TOKEN }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+        run: poetry run pytest -m snowflake_live --tb=short -q

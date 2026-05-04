@@ -1,46 +1,14 @@
 """Postgres connector — schema discovery and data sampling."""
 
-import datetime as _datetime
-import decimal as _decimal
-import uuid as _uuid
-from dataclasses import dataclass
-from typing import Any
-
 import psycopg
 from psycopg import sql as _pgsql
 from psycopg.rows import dict_row
 
 from sonar.connectors import _sql
+from sonar.connectors.serialize import _serialize_row
+from sonar.connectors.types import Column, ForeignKey, Table, _reject_dotted_identifier
 
 _CONTEXT_MANAGER_REQUIRED = "PostgresConnector must be used as an async context manager"
-
-
-@dataclass(frozen=True)
-class Column:
-    name: str
-    data_type: str
-    nullable: bool
-    is_primary_key: bool
-    foreign_key: str | None = None
-    default: str | None = None
-
-
-@dataclass(frozen=True)
-class Table:
-    schema: str
-    name: str
-    columns: tuple[Column, ...]
-    row_count: int | None = None
-
-
-@dataclass(frozen=True)
-class ForeignKey:
-    source_schema: str
-    source_table: str
-    source_column: str
-    target_schema: str
-    target_table: str
-    target_column: str
 
 
 class PostgresConnector:
@@ -102,15 +70,6 @@ class PostgresConnector:
             await cur.execute(_sql.NON_SYSTEM_SCHEMAS)
             rows = await cur.fetchall()
         return [r[0] for r in rows]
-
-
-def _reject_dotted_identifier(kind: str, value: str) -> None:
-    if "." in value:
-        raise ValueError(
-            f"{kind} identifier contains '.': {value!r}. "
-            "Sonar requires identifiers without '.' so the context-index bundle's "
-            "on-disk key encoding stays unambiguous."
-        )
 
 
 def _tables_from_rows(rows: list[dict]) -> list[Table]:
@@ -179,22 +138,6 @@ def _foreign_keys_from_rows(rows: list[dict]) -> list[ForeignKey]:
             )
         )
     return result
-
-
-def _serialize_row(row: dict) -> dict:
-    return {k: _coerce_value(v) for k, v in row.items()}
-
-
-def _coerce_value(value: Any) -> Any:
-    if isinstance(value, _uuid.UUID):
-        return str(value)
-    if isinstance(value, (_datetime.datetime, _datetime.date)):
-        return value.isoformat()
-    if isinstance(value, _decimal.Decimal):
-        return float(value)
-    if isinstance(value, bytes):
-        return "<binary>"
-    return value
 
 
 def _column_from_row(row: dict) -> Column:

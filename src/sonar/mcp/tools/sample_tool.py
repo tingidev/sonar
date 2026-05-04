@@ -18,7 +18,7 @@ import psycopg.sql as _pgsql
 from psycopg.rows import dict_row
 
 from sonar._dsn import scrub_dsn
-from sonar.connectors.postgres import _coerce_value
+from sonar.connectors.serialize import _coerce_value
 from sonar.engine.describe import PIIRisk
 from sonar.index.bundle import ContextBundle
 from sonar.mcp.audit import emit_sample_audit

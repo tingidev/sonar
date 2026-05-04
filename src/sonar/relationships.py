@@ -5,7 +5,7 @@ import logging
 from collections import Counter
 from dataclasses import dataclass
 
-from sonar.connectors.postgres import Column, ForeignKey, Table
+from sonar.connectors.types import Column, ForeignKey, Table
 
 _LOGGER = logging.getLogger("sonar.relationships")
 

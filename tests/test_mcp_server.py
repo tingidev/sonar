@@ -14,7 +14,7 @@ import pytest
 
 import sonar.cli
 from sonar.cli import main
-from sonar.connectors.postgres import Column, Table
+from sonar.connectors.types import Column, Table
 from sonar.index.bundle import (
     BundleIntegrityError,
     BundleMeta,

@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from sonar.connectors.postgres import Column, ForeignKey, Table
+from sonar.connectors.types import Column, ForeignKey, Table
 from sonar.relationships import Relationship, RelationshipKind, map_relationships
 
 

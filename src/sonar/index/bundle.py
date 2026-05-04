@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-from sonar.connectors.postgres import Table
+from sonar.connectors.types import Table
 from sonar.engine.describe import TableDescription
 from sonar.relationships import Relationship
 

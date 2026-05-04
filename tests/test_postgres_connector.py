@@ -11,12 +11,11 @@ import pytest_asyncio
 from sonar.connectors import _sql
 from sonar.connectors.postgres import (
     PostgresConnector,
-    _coerce_value,
     _foreign_keys_from_rows,
     _row_count_from_row,
-    _serialize_row,
     _tables_from_rows,
 )
+from sonar.connectors.serialize import _coerce_value, _serialize_row
 from tests.conftest import DEFAULT_TEST_DATABASE_URL
 
 

@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass
 from enum import StrEnum
 
-from sonar.connectors.postgres import Column, Table
+from sonar.connectors.types import Column, Table
 from sonar.engine._prompts import SYSTEM_PROMPT, build_table_prompt
 from sonar.engine.llm import LLMClient, LLMConfig
 

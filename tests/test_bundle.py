@@ -6,7 +6,7 @@ import dataclasses
 
 import pytest
 
-from sonar.connectors.postgres import Column, Table
+from sonar.connectors.types import Column, Table
 from sonar.engine.describe import (
     ColumnDescription,
     PIIRisk,

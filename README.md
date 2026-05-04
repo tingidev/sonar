@@ -238,6 +238,58 @@ sonar scan postgresql://user:pass@localhost/mydb
 sonar scan --concurrency 3 postgresql://user:pass@localhost/mydb
 ```
 
+### Scan Snowflake
+
+The Snowflake driver is a separate install — Postgres-only users don't pay the
+download cost.
+
+```bash
+pip install 'sonar-ai[snowflake]'
+```
+
+Two ways to authenticate. Pick one:
+
+```bash
+# 1) URL form — fastest for a one-off scan, but the password is visible in
+#    shell history and `ps` output. Prefer the env-var form for anything
+#    beyond a quick test.
+sonar scan 'snowflake://USER:PASS@ACCOUNT/DATABASE/SCHEMA?warehouse=W&role=R'
+
+# 2) Bare keyword form — reads SNOWFLAKE_* env vars (table below), supports
+#    password, key-pair, OAuth, and externalbrowser SSO authentication.
+export SNOWFLAKE_ACCOUNT=xy12345.us-east-1.aws
+export SNOWFLAKE_USER=joeri
+export SNOWFLAKE_PASSWORD=...
+export SNOWFLAKE_DATABASE=SNOWFLAKE_SAMPLE_DATA
+export SNOWFLAKE_SCHEMA=TPCH_SF1
+export SNOWFLAKE_WAREHOUSE=COMPUTE_WH
+sonar scan snowflake
+```
+
+Sonar reads exactly these environment variables (everything outside the list
+is silently ignored, so a future driver renaming a parameter never silently
+changes the contract):
+
+| Variable | Driver kwarg | Purpose |
+|---|---|---|
+| `SNOWFLAKE_ACCOUNT` | `account` | **Required.** Account locator. |
+| `SNOWFLAKE_USER` | `user` | **Required.** Username. |
+| `SNOWFLAKE_DATABASE` | `database` | **Required.** Bound database. Sonar scans within one database per invocation. |
+| `SNOWFLAKE_AUTHENTICATOR` | `authenticator` | One of: `snowflake` (default), `externalbrowser`, `oauth`, `snowflake_jwt`. |
+| `SNOWFLAKE_PASSWORD` | `password` | Password authentication. |
+| `SNOWFLAKE_PRIVATE_KEY_PATH` | `private_key_file` | Key-pair authentication — path to PEM file. |
+| `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE` | `private_key_file_pwd` | Key-pair passphrase, if encrypted. |
+| `SNOWFLAKE_TOKEN` | `token` | OAuth bearer token. |
+| `SNOWFLAKE_SCHEMA` | `schema` | Optional schema scope; otherwise all non-system schemas in the database. |
+| `SNOWFLAKE_WAREHOUSE` | `warehouse` | Optional warehouse override. |
+| `SNOWFLAKE_ROLE` | `role` | Optional role override. |
+
+Snowflake declares foreign keys as informational only, so most warehouses don't
+declare them at all. The `inferred-relationships` heuristic (Phase 2) recovers
+much of the FK graph from naming patterns alone — that compounds with this
+connector to give Snowflake users the same agent-ready graph that Postgres
+users get from declared FKs.
+
 ### Start the MCP server
 
 **Bundle-only mode** — stateless, no database credentials needed:
@@ -351,7 +403,7 @@ The agent sees the column exists but never receives sensitive values. Override w
 
 ```
 src/sonar/
-  connectors/     Data source adapters (Postgres today, more planned)
+  connectors/     Data source adapters (Postgres, Snowflake)
   engine/         LLM client + description generation + relationship mapping
   index/          Context bundle storage and loading
   mcp/            MCP server and tool implementations
@@ -386,11 +438,27 @@ Development setup:
 ```bash
 git clone https://github.com/tingidev/sonar.git
 cd sonar
-poetry install
+poetry install -E snowflake
 poetry run pytest
 ```
 
-Tests run at 97% coverage. The test suite includes unit tests, integration tests against a real Postgres instance (via Docker), and MCP tool tests.
+Tests run at ~96% coverage. The test suite includes unit tests, integration
+tests against a real Postgres instance (via Docker), and MCP tool tests.
+
+**Snowflake testing — two tiers.** Contributors don't need a Snowflake account:
+
+- **Default tier** — Snowflake tests run against [`fakesnow`](https://github.com/tekumara/fakesnow),
+  a DuckDB-backed in-process emulator that supports `INFORMATION_SCHEMA`,
+  `SHOW` commands, and table sampling. Every PR runs these tests via the
+  default `pytest` invocation.
+- **Live tier** — real-account smoke tests tagged `@pytest.mark.snowflake_live`.
+  Skipped by default; run via the `snowflake-live.yml` GitHub Actions workflow
+  on push-to-main and `workflow_dispatch` only. Credentials never reach
+  PR-triggered runs from forks.
+
+fakesnow accepts more permissive SQL than real Snowflake, so a query that works
+in tests can still fail against a real warehouse. The live tier is the safety
+net.
 
 ## License
 

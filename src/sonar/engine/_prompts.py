@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from sonar.connectors.postgres import Table
+from sonar.connectors.types import Table
 
 SYSTEM_PROMPT = """You are a data semantics analyst.
 
