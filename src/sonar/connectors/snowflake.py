@@ -71,20 +71,46 @@ class SnowflakeConnector:
         if not resolved:
             return []
 
-        rows = await asyncio.to_thread(
-            self._fetch_dicts,
-            _sf_sql.tables_and_columns_query(
-                len(resolved), has_row_count=self._row_count_available
-            ),
-            tuple(resolved),
-        )
+        try:
+            rows = await asyncio.to_thread(
+                self._fetch_dicts,
+                _sf_sql.tables_and_columns_query(
+                    len(resolved), has_row_count=self._row_count_available
+                ),
+                tuple(resolved),
+            )
+        except snowflake.connector.errors.ProgrammingError:
+            # Shared/imported databases (e.g. SNOWFLAKE_SAMPLE_DATA) don't
+            # expose KEY_COLUMN_USAGE. Fall back to discovery without PK info.
+            _LOGGER.warning(
+                "constraint views not accessible on database %r; "
+                "primary key detection disabled",
+                self.database,
+            )
+            rows = await asyncio.to_thread(
+                self._fetch_dicts,
+                _sf_sql.tables_and_columns_query(
+                    len(resolved),
+                    has_row_count=self._row_count_available,
+                    has_pk_views=False,
+                ),
+                tuple(resolved),
+            )
         return _tables_from_rows(rows)
 
     async def discover_relationships(self) -> list[ForeignKey]:
         if self._conn is None:
             raise RuntimeError(_CONTEXT_MANAGER_REQUIRED)
 
-        rows = await asyncio.to_thread(self._fetch_dicts, _sf_sql.FOREIGN_KEYS, ())
+        try:
+            rows = await asyncio.to_thread(self._fetch_dicts, _sf_sql.FOREIGN_KEYS, ())
+        except snowflake.connector.errors.ProgrammingError:
+            _LOGGER.warning(
+                "constraint views not accessible on database %r; "
+                "foreign key discovery disabled",
+                self.database,
+            )
+            return []
         result, dropped = _foreign_keys_from_rows(rows, self.database)
         self.cross_database_foreign_keys_dropped = dropped
         if dropped:

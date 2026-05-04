@@ -94,17 +94,45 @@ ORDER BY src.TABLE_SCHEMA, src.TABLE_NAME, src.CONSTRAINT_NAME, src.ORDINAL_POSI
 """
 
 
-def tables_and_columns_query(schema_count: int, *, has_row_count: bool) -> str:
+# Fallback for shared/imported databases where KEY_COLUMN_USAGE and
+# TABLE_CONSTRAINTS are not accessible. Same shape minus PK detection.
+TABLES_AND_COLUMNS_NO_PK_TEMPLATE = """
+SELECT
+    c.TABLE_SCHEMA      AS schema,
+    c.TABLE_NAME        AS table_name,
+    c.COLUMN_NAME       AS column_name,
+    c.ORDINAL_POSITION  AS ordinal_position,
+    c.DATA_TYPE         AS data_type,
+    c.IS_NULLABLE       AS is_nullable,
+    c.COLUMN_DEFAULT    AS column_default,
+    FALSE               AS is_primary_key,
+    {row_count_expr}    AS row_count
+FROM INFORMATION_SCHEMA.COLUMNS c
+JOIN INFORMATION_SCHEMA.TABLES t
+  ON t.TABLE_SCHEMA = c.TABLE_SCHEMA
+ AND t.TABLE_NAME   = c.TABLE_NAME
+WHERE t.TABLE_TYPE = 'BASE TABLE'
+  AND c.TABLE_SCHEMA IN ({schemas_placeholder})
+ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
+"""
+
+
+def tables_and_columns_query(
+    schema_count: int, *, has_row_count: bool, has_pk_views: bool = True
+) -> str:
     """Return the TABLES_AND_COLUMNS query with `schema_count` placeholders.
 
     `has_row_count=False` substitutes a NULL literal for the ROW_COUNT column,
     which is what fakesnow needs (real Snowflake exposes the column).
+    `has_pk_views=False` drops the PK join for shared/imported databases where
+    KEY_COLUMN_USAGE is not accessible.
     """
     if schema_count <= 0:
         raise ValueError("schema_count must be positive")
     placeholders = ", ".join(["%s"] * schema_count)
     row_count_expr = "t.ROW_COUNT" if has_row_count else "CAST(NULL AS BIGINT)"
-    return TABLES_AND_COLUMNS_TEMPLATE.format(
+    template = TABLES_AND_COLUMNS_TEMPLATE if has_pk_views else TABLES_AND_COLUMNS_NO_PK_TEMPLATE
+    return template.format(
         schemas_placeholder=placeholders,
         row_count_expr=row_count_expr,
     )
