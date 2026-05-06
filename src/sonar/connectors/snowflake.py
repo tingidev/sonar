@@ -29,9 +29,7 @@ class SnowflakeConnector:
     def __init__(self, connect_kwargs: dict[str, Any]) -> None:
         for required in ("account", "user", "database"):
             if not connect_kwargs.get(required):
-                raise ValueError(
-                    f"snowflake connector requires {required!r} in connect_kwargs"
-                )
+                raise ValueError(f"snowflake connector requires {required!r} in connect_kwargs")
         self._connect_kwargs: dict[str, Any] = dict(connect_kwargs)
         self._conn: Any | None = None
         self._row_count_available: bool = True
@@ -46,16 +44,12 @@ class SnowflakeConnector:
         return self._connect_kwargs.get("schema")
 
     async def __aenter__(self) -> SnowflakeConnector:
-        self._conn = await asyncio.to_thread(
-            snowflake.connector.connect, **self._connect_kwargs
-        )
+        self._conn = await asyncio.to_thread(snowflake.connector.connect, **self._connect_kwargs)
         self._row_count_available = await self._probe_row_count_available()
         return self
 
     async def _probe_row_count_available(self) -> bool:
-        rows = await asyncio.to_thread(
-            self._fetch_rows, _sf_sql.ROW_COUNT_AVAILABLE_PROBE, ()
-        )
+        rows = await asyncio.to_thread(self._fetch_rows, _sf_sql.ROW_COUNT_AVAILABLE_PROBE, ())
         return bool(rows and rows[0][0])
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -83,8 +77,7 @@ class SnowflakeConnector:
             # Shared/imported databases (e.g. SNOWFLAKE_SAMPLE_DATA) don't
             # expose KEY_COLUMN_USAGE. Fall back to discovery without PK info.
             _LOGGER.warning(
-                "constraint views not accessible on database %r; "
-                "primary key detection disabled",
+                "constraint views not accessible on database %r; " "primary key detection disabled",
                 self.database,
             )
             rows = await asyncio.to_thread(
@@ -106,8 +99,7 @@ class SnowflakeConnector:
             rows = await asyncio.to_thread(self._fetch_dicts, _sf_sql.FOREIGN_KEYS, ())
         except snowflake.connector.errors.ProgrammingError:
             _LOGGER.warning(
-                "constraint views not accessible on database %r; "
-                "foreign key discovery disabled",
+                "constraint views not accessible on database %r; " "foreign key discovery disabled",
                 self.database,
             )
             return []
@@ -224,9 +216,7 @@ def _column_from_row(row: dict) -> Column:
     )
 
 
-def _foreign_keys_from_rows(
-    rows: list[dict], bound_database: str
-) -> tuple[list[ForeignKey], int]:
+def _foreign_keys_from_rows(rows: list[dict], bound_database: str) -> tuple[list[ForeignKey], int]:
     result: list[ForeignKey] = []
     dropped = 0
     for row in rows:
@@ -238,10 +228,7 @@ def _foreign_keys_from_rows(
         # Snowflake unquoted identifiers fold case; INFORMATION_SCHEMA can
         # return the database name in different case from what the user supplied
         # to connect(). Compare case-insensitively.
-        cross_db = (
-            target_database is not None
-            and target_database.upper() != bound_database.upper()
-        )
+        cross_db = target_database is not None and target_database.upper() != bound_database.upper()
         if cross_db or target_schema is None or target_table is None or target_column is None:
             dropped += 1
             continue

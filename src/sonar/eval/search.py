@@ -55,21 +55,15 @@ def parse_ground_truth(raw: object, *, source: str = "<input>") -> list[GroundTr
         )
     queries_raw = raw["queries"]
     if not isinstance(queries_raw, list) or not queries_raw:
-        raise GroundTruthError(
-            f"ground-truth file {source}: 'queries' must be a non-empty list"
-        )
+        raise GroundTruthError(f"ground-truth file {source}: 'queries' must be a non-empty list")
     out: list[GroundTruthQuery] = []
     for i, item in enumerate(queries_raw):
         if not isinstance(item, dict):
-            raise GroundTruthError(
-                f"ground-truth file {source}: query #{i} is not a mapping"
-            )
+            raise GroundTruthError(f"ground-truth file {source}: query #{i} is not a mapping")
         query = item.get("query")
         expected = item.get("expected")
         if not isinstance(query, str) or not query:
-            raise GroundTruthError(
-                f"ground-truth file {source}: query #{i} missing 'query' string"
-            )
+            raise GroundTruthError(f"ground-truth file {source}: query #{i} missing 'query' string")
         if not isinstance(expected, list) or not all(isinstance(t, str) for t in expected):
             raise GroundTruthError(
                 f"ground-truth file {source}: query #{i} ('{query}') "

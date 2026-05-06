@@ -27,8 +27,7 @@ _REQUIRED = ("SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_WAREHOUSE")
 _AUTH = ("SNOWFLAKE_PASSWORD", "SNOWFLAKE_PRIVATE_KEY_PATH", "SNOWFLAKE_TOKEN")
 
 _skip_unless_live = pytest.mark.skipif(
-    not all(os.environ.get(v) for v in _REQUIRED)
-    or not any(os.environ.get(v) for v in _AUTH),
+    not all(os.environ.get(v) for v in _REQUIRED) or not any(os.environ.get(v) for v in _AUTH),
     reason="live Snowflake credentials not present (set SNOWFLAKE_* env vars)",
 )
 

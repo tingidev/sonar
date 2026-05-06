@@ -54,9 +54,7 @@ def make_sample_tool(
                 limit_effective=None,
                 rows_returned=None,
             )
-            raise ToolError(
-                f"sample limit {requested} is invalid; pass limit >= 1"
-            )
+            raise ToolError(f"sample limit {requested} is invalid; pass limit >= 1")
 
         if requested > MAX_SAMPLE_ROWS:
             emit_sample_audit(

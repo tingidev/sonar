@@ -101,9 +101,7 @@ class TestEvaluateDescriptions:
 
     @pytest.mark.asyncio
     async def test_low_scores_flagged(self) -> None:
-        bundle = _bundle(
-            [_table("a")], {("public", "a"): _description("a")}
-        )
+        bundle = _bundle([_table("a")], {("public", "a"): _description("a")})
         client = FakeJudgeClient(
             lambda prompt, system: json.dumps(
                 {"accuracy": 0.3, "completeness": 0.7, "specificity": 0.7}
@@ -138,9 +136,7 @@ class TestEvaluateDescriptions:
         def respond(prompt: str, system: str | None) -> str:
             if "public.b" in prompt:
                 return "not json"
-            return json.dumps(
-                {"accuracy": 0.9, "completeness": 0.9, "specificity": 0.9}
-            )
+            return json.dumps({"accuracy": 0.9, "completeness": 0.9, "specificity": 0.9})
 
         client = FakeJudgeClient(respond)
         report = await evaluate_descriptions(bundle, client)
@@ -149,12 +145,8 @@ class TestEvaluateDescriptions:
 
     @pytest.mark.asyncio
     async def test_judge_provider_error_handled(self) -> None:
-        bundle = _bundle(
-            [_table("a")], {("public", "a"): _description("a")}
-        )
-        client = FakeJudgeClient(
-            lambda prompt, system: RuntimeError("api down")
-        )
+        bundle = _bundle([_table("a")], {("public", "a"): _description("a")})
+        client = FakeJudgeClient(lambda prompt, system: RuntimeError("api down"))
         report = await evaluate_descriptions(bundle, client)
         assert report.scored_count == 0
         assert report.judge_failures == 1

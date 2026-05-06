@@ -76,9 +76,7 @@ def _bundle() -> ContextBundle:
         connector="postgres",
         database="x",
     )
-    return ContextBundle(
-        meta=meta, tables=tables, descriptions=descriptions, relationships=()
-    )
+    return ContextBundle(meta=meta, tables=tables, descriptions=descriptions, relationships=())
 
 
 class TestParseGroundTruth:

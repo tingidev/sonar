@@ -60,9 +60,7 @@ def evaluate_relationships(
     declared_foreign_keys: list[ForeignKey],
 ) -> RelationshipReport:
     declared_set = {_edge_from_fk(fk) for fk in declared_foreign_keys}
-    inferred = [
-        r for r in map_relationships(tables, []) if r.kind is RelationshipKind.INFERRED
-    ]
+    inferred = [r for r in map_relationships(tables, []) if r.kind is RelationshipKind.INFERRED]
     inferred_set = {_edge_from_relationship(r) for r in inferred}
 
     matched = declared_set & inferred_set
@@ -129,9 +127,7 @@ def _build_per_table_breakdown(
         fp_by_source[(e.source_schema, e.source_table)] += 1
 
     keys = sorted(
-        {(t.schema, t.name) for t in tables}
-        | declared_by_source.keys()
-        | fp_by_source.keys()
+        {(t.schema, t.name) for t in tables} | declared_by_source.keys() | fp_by_source.keys()
     )
 
     return tuple(

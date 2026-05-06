@@ -47,9 +47,7 @@ def build_quality_report(bundle: ContextBundle, bundle_dir: str) -> QualityRepor
 
     description_present = sum(1 for v in bundle.descriptions.values() if v is not None)
     description_null = sum(1 for v in bundle.descriptions.values() if v is None)
-    description_coverage = (
-        description_present / table_count if table_count > 0 else 0.0
-    )
+    description_coverage = description_present / table_count if table_count > 0 else 0.0
 
     incident: dict[tuple[str, str], int] = defaultdict(int)
     adjacency: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
@@ -62,9 +60,7 @@ def build_quality_report(bundle: ContextBundle, bundle_dir: str) -> QualityRepor
         adjacency[tgt].add(src)
 
     tables_with_relationships = sum(1 for k in table_keys if incident.get(k, 0) > 0)
-    relationship_coverage = (
-        tables_with_relationships / table_count if table_count > 0 else 0.0
-    )
+    relationship_coverage = tables_with_relationships / table_count if table_count > 0 else 0.0
     orphan_tables = tuple(k for k in table_keys if incident.get(k, 0) == 0)
 
     graph = _compute_graph_summary(table_keys, adjacency)

@@ -103,9 +103,7 @@ def format_quality_json(report: QualityReport) -> str:
         "column_confidence": _confidence_to_dict(report.column_confidence),
     }
     details = {
-        "orphan_tables": [
-            {"schema": s, "name": n} for (s, n) in report.orphan_tables
-        ],
+        "orphan_tables": [{"schema": s, "name": n} for (s, n) in report.orphan_tables],
     }
     return _dump_json(_envelope("quality", report.bundle_dir, metrics, details))
 
@@ -122,9 +120,7 @@ def _confidence_to_dict(c: ConfidenceSummary | None) -> dict[str, float] | None:
 
 
 def _format_confidence(c: ConfidenceSummary) -> str:
-    return (
-        f"mean={c.mean:.2f}  min={c.minimum:.2f}  max={c.maximum:.2f}  n={c.count}"
-    )
+    return f"mean={c.mean:.2f}  min={c.minimum:.2f}  max={c.maximum:.2f}  n={c.count}"
 
 
 # ---------------------------------------------------------------------------
@@ -272,9 +268,7 @@ def format_search_json(report: SearchReport, bundle_dir: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def format_diff_human(
-    report: DiffReport, current_dir: str, other_dir: str
-) -> str:
+def format_diff_human(report: DiffReport, current_dir: str, other_dir: str) -> str:
     lines: list[str] = []
     lines.append(f"Current: {current_dir}")
     lines.append(f"Other:   {other_dir}")
@@ -328,9 +322,7 @@ def format_diff_human(
     return "\n".join(lines)
 
 
-def format_diff_json(
-    report: DiffReport, current_dir: str, other_dir: str
-) -> str:
+def format_diff_json(report: DiffReport, current_dir: str, other_dir: str) -> str:
     metrics = {
         "tables_added": len(report.tables_added),
         "tables_removed": len(report.tables_removed),
@@ -389,9 +381,7 @@ def _change_dict(change: DescriptionChange) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def format_descriptions_human(
-    report: DescriptionQualityReport, bundle_dir: str
-) -> str:
+def format_descriptions_human(report: DescriptionQualityReport, bundle_dir: str) -> str:
     lines: list[str] = []
     lines.append(f"Bundle: {bundle_dir}")
     lines.append(
@@ -412,14 +402,14 @@ def format_descriptions_human(
             lines.append(_score_line(s))
 
     lines.append("")
-    lines.append("Note: same-model judge — use for relative comparison between runs, "
-                 "not absolute quality.")
+    lines.append(
+        "Note: same-model judge — use for relative comparison between runs, "
+        "not absolute quality."
+    )
     return "\n".join(lines)
 
 
-def format_descriptions_json(
-    report: DescriptionQualityReport, bundle_dir: str
-) -> str:
+def format_descriptions_json(report: DescriptionQualityReport, bundle_dir: str) -> str:
     metrics = {
         "scored_count": report.scored_count,
         "skipped_null": report.skipped_null,

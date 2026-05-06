@@ -127,9 +127,7 @@ class TestEnvVarDispatch:
         assert kw["token"] == "tok"
         assert kw["authenticator"] == "oauth"
 
-    def test_curated_externalbrowser_set_forwards(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_curated_externalbrowser_set_forwards(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SNOWFLAKE_ACCOUNT", "acct")
         monkeypatch.setenv("SNOWFLAKE_USER", "u")
         monkeypatch.setenv("SNOWFLAKE_AUTHENTICATOR", "externalbrowser")
@@ -137,9 +135,7 @@ class TestEnvVarDispatch:
         kw = _snowflake_kwargs_from_env()
         assert kw["authenticator"] == "externalbrowser"
 
-    def test_uncurated_env_var_silently_ignored(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_uncurated_env_var_silently_ignored(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SNOWFLAKE_ACCOUNT", "acct")
         monkeypatch.setenv("SNOWFLAKE_USER", "u")
         monkeypatch.setenv("SNOWFLAKE_PASSWORD", "p")
@@ -157,17 +153,13 @@ class TestEnvVarDispatch:
         with pytest.raises(_DispatchError, match="missing required.*ACCOUNT.*USER.*DATABASE"):
             _snowflake_kwargs_from_env()
 
-    def test_missing_only_database_lists_only_that(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_missing_only_database_lists_only_that(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SNOWFLAKE_ACCOUNT", "acct")
         monkeypatch.setenv("SNOWFLAKE_USER", "u")
         with pytest.raises(_DispatchError, match=r"missing required.*DATABASE"):
             _snowflake_kwargs_from_env()
 
-    def test_missing_auth_mechanism_raises(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_missing_auth_mechanism_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SNOWFLAKE_ACCOUNT", "acct")
         monkeypatch.setenv("SNOWFLAKE_USER", "u")
         monkeypatch.setenv("SNOWFLAKE_DATABASE", "db")
@@ -208,9 +200,7 @@ class TestDispatchTimeDriverGuard:
 
 
 class TestUnrecognizedArgument:
-    def test_unrecognized_form_lists_all_accepted(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_unrecognized_form_lists_all_accepted(self, capsys: pytest.CaptureFixture[str]) -> None:
         from sonar.cli import main
 
         rc = main(["scan", "mysql://user@host/db"])
@@ -234,9 +224,7 @@ class TestSelectConnectorRouting:
         spec = _select_connector("snowflake://u:p@a/d/s")
         assert spec.connector_type == "snowflake"
 
-    def test_snowflake_keyword_constructs_snowflake(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_snowflake_keyword_constructs_snowflake(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for key in list(os.environ):
             if key.startswith("SNOWFLAKE_"):
                 monkeypatch.delenv(key, raising=False)
@@ -420,18 +408,14 @@ class TestDiscoveryAgainstFakesnow:
         id_col = next(c for c in users.columns if c.name == "ID")
         assert id_col.is_primary_key
 
-    async def test_row_count_falls_back_to_none_under_fakesnow(
-        self, snowflake_db
-    ) -> None:
+    async def test_row_count_falls_back_to_none_under_fakesnow(self, snowflake_db) -> None:
         # fakesnow does not expose ROW_COUNT (design.md D6 caveat); the connector
         # detects this and substitutes NULL — every Table.row_count is None.
         async with SnowflakeConnector(_connect_kwargs()) as c:
             tables = await c.discover_tables()
         assert all(t.row_count is None for t in tables)
 
-    async def test_discover_relationships_returns_inbound_fk(
-        self, snowflake_db
-    ) -> None:
+    async def test_discover_relationships_returns_inbound_fk(self, snowflake_db) -> None:
         async with SnowflakeConnector(_connect_kwargs()) as c:
             fks = await c.discover_relationships()
             assert c.cross_database_foreign_keys_dropped == 0
@@ -582,9 +566,7 @@ class TestScanSummaryOutput:
         assert "3 foreign keys reference tables outside database" in out
         assert "TEST_DB" in out
 
-    def test_cross_db_count_silent_when_zero(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_cross_db_count_silent_when_zero(self, capsys: pytest.CaptureFixture[str]) -> None:
         # Postgres connector has no `cross_database_foreign_keys_dropped` attr;
         # the renderer must fall back to 0 silently and not emit the line.
         from sonar.connectors.postgres import PostgresConnector

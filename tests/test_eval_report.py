@@ -103,9 +103,7 @@ class TestRelationshipsFormatters:
                 RelationshipEdge("public", "a", "x", "public", "b", "id"),
                 RelationshipEdge("public", "c", "y", "public", "d", "id"),
             ),
-            false_positive=(
-                RelationshipEdge("public", "e", "z", "public", "f", "id"),
-            ),
+            false_positive=(RelationshipEdge("public", "e", "z", "public", "f", "id"),),
             per_table=(
                 TableBreakdown("public", "a", 1, 0, 1, 0),
                 TableBreakdown("public", "e", 0, 0, 0, 1),
@@ -192,14 +190,10 @@ class TestDiffFormatters:
             tables_added=(("public", "new1"),),
             tables_removed=(("public", "old1"),),
             relationships_added=(
-                RelationshipEdge(
-                    "public", "a", "x", "public", "b", "id", "inferred"
-                ),
+                RelationshipEdge("public", "a", "x", "public", "b", "id", "inferred"),
             ),
             relationships_removed=(
-                RelationshipEdge(
-                    "public", "c", "y", "public", "d", "id", "declared"
-                ),
+                RelationshipEdge("public", "c", "y", "public", "d", "id", "declared"),
             ),
             descriptions_added=(("public", "new1"),),
             descriptions_removed=(("public", "old1"),),

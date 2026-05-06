@@ -154,10 +154,7 @@ class TestEvalSearchCli:
     ) -> None:
         gt = tmp_path / "gt.yaml"
         gt.write_text(
-            "queries:\n"
-            "  - query: orders\n"
-            "    expected:\n"
-            "      - public.orders\n",
+            "queries:\n" "  - query: orders\n" "    expected:\n" "      - public.orders\n",
             encoding="utf-8",
         )
         exit_code = main(
@@ -181,9 +178,7 @@ class TestEvalSearchCli:
     ) -> None:
         gt = tmp_path / "gt.yaml"
         gt.write_text("queries:\n  - {bad}\n", encoding="utf-8")
-        exit_code = main(
-            ["eval", "--bundle-dir", str(bundle_dir), "--search", str(gt)]
-        )
+        exit_code = main(["eval", "--bundle-dir", str(bundle_dir), "--search", str(gt)])
         assert exit_code == 1
         assert "eval failed" in capsys.readouterr().err
 
@@ -212,9 +207,7 @@ class TestEvalDiffCli:
         self, bundle_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         missing = tmp_path / "missing"
-        exit_code = main(
-            ["eval", "--bundle-dir", str(bundle_dir), "--diff", str(missing)]
-        )
+        exit_code = main(["eval", "--bundle-dir", str(bundle_dir), "--diff", str(missing)])
         assert exit_code == 1
         assert "no bundle found" in capsys.readouterr().err
 
@@ -235,9 +228,7 @@ class TestEvalDescriptionsCli:
 
         monkeypatch.setattr(descriptions_mod, "evaluate_descriptions", _boom)
 
-        exit_code = main(
-            ["eval", "--bundle-dir", str(bundle_dir), "--descriptions"]
-        )
+        exit_code = main(["eval", "--bundle-dir", str(bundle_dir), "--descriptions"])
         assert exit_code == 1
         err = capsys.readouterr().err
         assert "eval failed" in err
@@ -267,18 +258,14 @@ class TestEvalDescriptionsCli:
 
         monkeypatch.setattr(descriptions_mod, "evaluate_descriptions", _all_fail)
 
-        exit_code = main(
-            ["eval", "--bundle-dir", str(bundle_dir), "--descriptions"]
-        )
+        exit_code = main(["eval", "--bundle-dir", str(bundle_dir), "--descriptions"])
         assert exit_code == 1
         err = capsys.readouterr().err
         assert "judge failed on all 2 tables" in err
 
 
 class TestEvalModeMutuallyExclusive:
-    def test_two_modes_rejected(
-        self, bundle_dir: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_two_modes_rejected(self, bundle_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(SystemExit):
             main(
                 [
