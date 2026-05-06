@@ -1,31 +1,6 @@
-# llm-client Specification
+# llm-client Specification (delta)
 
-## Purpose
-
-Thin abstraction over LLM providers. Provides a factory function that routes to the appropriate client based on model prefix, enabling multi-provider support without leaking provider SDKs into the rest of the codebase.
-
-## Requirements
-
-### Requirement: Provider-agnostic async LLM interface
-
-The system SHALL expose a single abstract `LLMClient` class with one public async method, `generate(prompt: str, system: str | None = None) -> str`, which returns the assistant message text. All LLM traffic in Sonar SHALL flow through an `LLMClient` subclass; no other module may import an LLM provider SDK directly.
-
-#### Scenario: Calling generate returns assistant text
-
-- **WHEN** a concrete `LLMClient` subclass is instantiated and `generate("What is the capital of France?")` is awaited
-- **THEN** the method returns the model's response as a plain `str`
-- **AND** no exception is raised for normal successful responses
-
-#### Scenario: System prompt is optional
-
-- **WHEN** `generate` is called without the `system` argument
-- **THEN** the underlying provider call SHALL be made without a system prompt
-- **AND** the behaviour is otherwise identical to a call with `system=None`
-
-#### Scenario: LLMClient cannot be instantiated directly
-
-- **WHEN** code attempts to instantiate the abstract `LLMClient` class directly
-- **THEN** Python SHALL raise `TypeError` because `generate` is an abstract method
+## ADDED Requirements
 
 ### Requirement: Model prefix routing via factory function
 
@@ -69,9 +44,11 @@ The `sonar scan` and `sonar eval descriptions` commands SHALL accept a `--model`
 - **WHEN** user runs `sonar scan --dsn <url>` without `--model`
 - **THEN** the description engine SHALL use `AnthropicClient` with model `claude-haiku-4-5-20251001`
 
+## MODIFIED Requirements
+
 ### Requirement: Configuration via `LLMConfig`
 
-The system SHALL expose a frozen dataclass `LLMConfig` with fields `model: str`, `max_tokens: int`, `max_concurrent_calls: int`. Defaults SHALL be `model="anthropic/claude-haiku-4-5-20251001"`, `max_tokens=4096`, `max_concurrent_calls=5`. Provider routing is derived from the model prefix.
+The system SHALL expose a frozen dataclass `LLMConfig` with fields `model: str`, `max_tokens: int`, `max_concurrent_calls: int`. Defaults SHALL be `model="anthropic/claude-haiku-4-5-20251001"`, `max_tokens=4096`, `max_concurrent_calls=5`. The `provider` field is removed; provider routing is derived from the model prefix.
 
 #### Scenario: Default config is valid
 
@@ -84,6 +61,15 @@ The system SHALL expose a frozen dataclass `LLMConfig` with fields `model: str`,
 - **WHEN** `LLMConfig` is constructed with a field value of the wrong type (e.g. `max_tokens="a lot"`)
 - **THEN** the call proceeds (dataclasses do not enforce types at runtime)
 - **AND** subsequent use by a client MAY raise a provider-level error
+
+### Requirement: No direct provider imports outside `LLMClient` implementations
+
+Only modules implementing `LLMClient` SHALL import from the `anthropic` or `openai` packages. All other Sonar modules SHALL interact with LLMs exclusively through the `create_llm_client` factory and `LLMClient` abstraction.
+
+#### Scenario: Engine modules do not import provider SDKs
+
+- **WHEN** scanning the imports of every module under `src/sonar/` except those implementing `LLMClient`
+- **THEN** no module SHALL import from `anthropic` or `openai`
 
 ### Requirement: Anthropic implementation
 
@@ -100,29 +86,3 @@ The system SHALL provide `AnthropicClient(LLMClient)` using the official `anthro
 - **WHEN** the Anthropic API returns a 429 or 5xx on the first attempt
 - **THEN** the SDK's configured retry policy (`max_retries=2`) SHALL handle the retry internally
 - **AND** Sonar code SHALL NOT implement its own retry loop around the call
-
-### Requirement: Observability at the LLM boundary
-
-The system SHALL emit one log record per completed `generate` call via the standard `logging` module on the logger `sonar.engine.llm` at level `INFO`. The record SHALL include the model name, input and output token counts, and call latency in milliseconds. The record SHALL NOT include the prompt content, system prompt content, or response content.
-
-#### Scenario: Log record emitted on successful call
-
-- **WHEN** any `LLMClient.generate` returns successfully
-- **THEN** exactly one log record SHALL be emitted on `sonar.engine.llm` at level `INFO`
-- **AND** the record's `extra` or structured payload SHALL contain keys `model`, `input_tokens`, `output_tokens`, `latency_ms`
-- **AND** the record SHALL NOT contain the strings passed as `prompt` or `system`
-
-#### Scenario: Log record not emitted on provider exception
-
-- **WHEN** `LLMClient.generate` raises a provider API error
-- **THEN** the exception propagates to the caller
-- **AND** no `llm_call` log record is emitted
-
-### Requirement: No direct provider imports outside `LLMClient` implementations
-
-Only modules implementing `LLMClient` SHALL import from the `anthropic` or `openai` packages. All other Sonar modules SHALL interact with LLMs exclusively through the `create_llm_client` factory and `LLMClient` abstraction.
-
-#### Scenario: Engine modules do not import provider SDKs
-
-- **WHEN** scanning the imports of every module under `src/sonar/` except those implementing `LLMClient`
-- **THEN** no module SHALL import from `anthropic` or `openai`

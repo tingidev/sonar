@@ -1,26 +1,15 @@
-"""LLM interface — thin abstraction over the LLM provider.
-
-Phase 1: Anthropic (Haiku) direct.
-Public release: swap to LiteLLM for multi-provider support.
-"""
+"""LLM interface — ABC, configuration, and factory."""
 
 from __future__ import annotations
 
 import abc
-import logging
 import re
-import time
 from dataclasses import dataclass
-
-import anthropic
-
-_LOGGER = logging.getLogger("sonar.engine.llm")
 
 
 @dataclass(frozen=True)
 class LLMConfig:
-    provider: str = "anthropic"
-    model: str = "claude-haiku-4-5-20251001"
+    model: str = "anthropic/claude-haiku-4-5-20251001"
     max_tokens: int = 4096
     max_concurrent_calls: int = 5
 
@@ -33,40 +22,22 @@ class LLMClient(abc.ABC):
         """Return the assistant text for a single-turn completion."""
 
 
-class AnthropicClient(LLMClient):
-    """Anthropic implementation of `LLMClient` using `anthropic.AsyncAnthropic`.
+_ANTHROPIC_PREFIX = "anthropic/"
 
-    API key is read from `ANTHROPIC_API_KEY` by the SDK; never accepted here.
-    """
 
-    def __init__(self, config: LLMConfig | None = None) -> None:
-        self._config = config or LLMConfig()
-        self._client = anthropic.AsyncAnthropic(max_retries=2)
+def create_llm_client(config: LLMConfig | None = None) -> LLMClient:
+    """Factory — routes to the appropriate client based on model prefix."""
+    config = config or LLMConfig()
 
-    async def generate(self, prompt: str, system: str | None = None) -> str:
-        kwargs: dict = {
-            "model": self._config.model,
-            "max_tokens": self._config.max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        if system is not None:
-            kwargs["system"] = system
+    if config.model.startswith(_ANTHROPIC_PREFIX):
+        from sonar.engine._anthropic import AnthropicClient
 
-        start = time.perf_counter()
-        response = await self._client.messages.create(**kwargs)
-        latency_ms = int((time.perf_counter() - start) * 1000)
+        bare_model = config.model[len(_ANTHROPIC_PREFIX) :]
+        return AnthropicClient(model=bare_model, max_tokens=config.max_tokens)
 
-        usage = getattr(response, "usage", None)
-        _LOGGER.info(
-            "llm_call",
-            extra={
-                "model": self._config.model,
-                "input_tokens": getattr(usage, "input_tokens", 0),
-                "output_tokens": getattr(usage, "output_tokens", 0),
-                "latency_ms": latency_ms,
-            },
-        )
-        return _strip_code_fences(response.content[0].text)
+    from sonar.engine._openai import OpenAIClient
+
+    return OpenAIClient(model=config.model, max_tokens=config.max_tokens)
 
 
 _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*\n(.*?)\n```\s*$", re.DOTALL)

@@ -18,7 +18,7 @@ from sonar._dsn import scrub_dsn
 from sonar.connectors.postgres import PostgresConnector
 from sonar.connectors.types import ForeignKey, Table
 from sonar.engine.describe import DescriptionEngine
-from sonar.engine.llm import AnthropicClient, LLMConfig
+from sonar.engine.llm import LLMConfig, create_llm_client
 from sonar.index.bundle import (
     SCHEMA_VERSION,
     BundleIntegrityError,
@@ -71,7 +71,8 @@ class _ConnectorSpec:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Sonar - data context for AI agents")
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         default=False,
         help="Enable verbose logging (INFO level)",
@@ -83,10 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         "dsn",
         nargs="?",
         default=None,
-        help=(
-            "Connection target. Accepted forms: "
-            + "; ".join(_ACCEPTED_FORMS)
-        ),
+        help=("Connection target. Accepted forms: " + "; ".join(_ACCEPTED_FORMS)),
     )
     scan_parser.add_argument(
         "--url",
@@ -107,6 +105,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Max concurrent LLM calls during description (default: 5)",
     )
+    scan_parser.add_argument(
+        "--model",
+        dest="model",
+        default=None,
+        help="LLM model to use (e.g. anthropic/claude-haiku-4-5-20251001, gpt-4o, llama3)",
+    )
 
     eval_parser = subparsers.add_parser("eval", help="Run evaluation reports on a bundle")
     eval_parser.add_argument(
@@ -120,6 +124,12 @@ def main(argv: list[str] | None = None) -> int:
         dest="json_output",
         action="store_true",
         help="Output structured JSON instead of human-readable text",
+    )
+    eval_parser.add_argument(
+        "--model",
+        dest="model",
+        default=None,
+        help="LLM model for description evaluation (e.g. anthropic/claude-haiku-4-5-20251001)",
     )
     mode_group = eval_parser.add_mutually_exclusive_group()
     mode_group.add_argument(
@@ -157,8 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "Connection target. When omitted, the server runs in bundle-only mode "
-            "and the sample tool is not registered. Accepted forms: "
-            + "; ".join(_ACCEPTED_FORMS)
+            "and the sample tool is not registered. Accepted forms: " + "; ".join(_ACCEPTED_FORMS)
         ),
     )
     serve_parser.add_argument(
@@ -210,7 +219,7 @@ def _run_scan(args: argparse.Namespace) -> int:
     bundle_dir = Path(args.bundle_dir)
 
     try:
-        bundle = asyncio.run(_scan_pipeline(spec, concurrency=args.concurrency))
+        bundle = asyncio.run(_scan_pipeline(spec, concurrency=args.concurrency, model=args.model))
     except Exception as exc:  # noqa: BLE001 - CLI boundary
         # Connection-error paths can embed credentials in str(exc); scrub the
         # raw positional out before it reaches stderr.
@@ -224,7 +233,10 @@ def _run_scan(args: argparse.Namespace) -> int:
 
 
 async def _scan_pipeline(
-    spec: _ConnectorSpec, *, concurrency: int | None = None
+    spec: _ConnectorSpec,
+    *,
+    concurrency: int | None = None,
+    model: str | None = None,
 ) -> ContextBundle:
     async with spec.connector as conn:
         tables = await conn.discover_tables()
@@ -240,8 +252,13 @@ async def _scan_pipeline(
         pairs = await asyncio.gather(*(_sample_one(t) for t in tables))
         samples: dict[tuple[str, str], list[dict]] = dict(pairs)
 
-        config = LLMConfig(max_concurrent_calls=concurrency) if concurrency else LLMConfig()
-        engine = DescriptionEngine(AnthropicClient(config), config)
+        config_kwargs: dict[str, Any] = {}
+        if concurrency:
+            config_kwargs["max_concurrent_calls"] = concurrency
+        if model:
+            config_kwargs["model"] = model
+        config = LLMConfig(**config_kwargs)
+        engine = DescriptionEngine(create_llm_client(config), config)
         descriptions = await engine.describe_database(tables, samples)
 
     relationships = map_relationships(tables, foreign_keys)
@@ -268,9 +285,7 @@ async def _scan_pipeline(
     )
 
 
-def _print_scan_summary(
-    spec: _ConnectorSpec, bundle: ContextBundle, bundle_dir: Path
-) -> None:
+def _print_scan_summary(spec: _ConnectorSpec, bundle: ContextBundle, bundle_dir: Path) -> None:
     print(
         f"Scanned {spec.database_label}: "
         f"{len(bundle.tables)} tables, {len(bundle.relationships)} relationships"
@@ -295,7 +310,7 @@ def _run_eval(args: argparse.Namespace) -> int:
     if args.diff_other is not None:
         return _run_eval_diff(bundle_dir, Path(args.diff_other), args.json_output)
     if args.descriptions_mode:
-        return _run_eval_descriptions(bundle_dir, args.json_output)
+        return _run_eval_descriptions(bundle_dir, args.json_output, model=args.model)
     return _run_eval_quality(bundle_dir, args.json_output)
 
 
@@ -363,9 +378,7 @@ async def _collect_relationship_inputs(
     return tables, foreign_keys
 
 
-def _run_eval_search(
-    bundle_dir: Path, ground_truth_path: Path, json_output: bool
-) -> int:
+def _run_eval_search(bundle_dir: Path, ground_truth_path: Path, json_output: bool) -> int:
     from sonar.eval._report import format_search_human, format_search_json
     from sonar.eval.search import GroundTruthError, evaluate_search, load_ground_truth
 
@@ -386,9 +399,7 @@ def _run_eval_search(
     return 0
 
 
-def _run_eval_diff(
-    bundle_dir: Path, other_dir: Path, json_output: bool
-) -> int:
+def _run_eval_diff(bundle_dir: Path, other_dir: Path, json_output: bool) -> int:
     from sonar.eval._report import format_diff_human, format_diff_json
     from sonar.eval.diff import diff_bundles
 
@@ -412,7 +423,7 @@ def _run_eval_diff(
     return 0
 
 
-def _run_eval_descriptions(bundle_dir: Path, json_output: bool) -> int:
+def _run_eval_descriptions(bundle_dir: Path, json_output: bool, *, model: str | None = None) -> int:
     from sonar.eval._report import (
         format_descriptions_human,
         format_descriptions_json,
@@ -423,8 +434,8 @@ def _run_eval_descriptions(bundle_dir: Path, json_output: bool) -> int:
     if bundle is None:
         return 1
 
-    config = LLMConfig()
-    client = AnthropicClient(config)
+    config = LLMConfig(model=model) if model else LLMConfig()
+    client = create_llm_client(config)
     try:
         report = asyncio.run(evaluate_descriptions(bundle, client, config=config))
     except Exception as exc:  # noqa: BLE001 - CLI boundary
@@ -438,8 +449,7 @@ def _run_eval_descriptions(bundle_dir: Path, json_output: bool) -> int:
 
     if report.scored_count == 0 and report.judge_failures > 0:
         print(
-            f"eval: judge failed on all {report.judge_failures} tables; "
-            "no scores produced",
+            f"eval: judge failed on all {report.judge_failures} tables; " "no scores produced",
             file=sys.stderr,
         )
         return 1
@@ -509,9 +519,7 @@ def _select_connector(positional: str) -> _ConnectorSpec:
             database_label=_snowflake_label(connect_kwargs),
         )
 
-    raise _DispatchError(
-        "unrecognized argument; accepted forms: " + "; ".join(_ACCEPTED_FORMS)
-    )
+    raise _DispatchError("unrecognized argument; accepted forms: " + "; ".join(_ACCEPTED_FORMS))
 
 
 def _ensure_snowflake_driver() -> None:
@@ -525,8 +533,7 @@ def _snowflake_kwargs_from_url(url: str) -> dict[str, Any]:
         raise _DispatchError("snowflake URL must include a user")
     if parsed.password is None:
         raise _DispatchError(
-            "snowflake URL must include a password "
-            "(or use bare 'snowflake' for env-var auth)"
+            "snowflake URL must include a password " "(or use bare 'snowflake' for env-var auth)"
         )
     if not parsed.hostname:
         raise _DispatchError("snowflake URL must include an account locator")
@@ -559,13 +566,12 @@ def _snowflake_kwargs_from_env() -> dict[str, Any]:
             kwargs[kwarg] = value
 
     missing = [
-        v for v in ("SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_DATABASE")
+        v
+        for v in ("SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_DATABASE")
         if not os.environ.get(v)
     ]
     if missing:
-        raise _DispatchError(
-            "missing required Snowflake env vars: " + ", ".join(missing)
-        )
+        raise _DispatchError("missing required Snowflake env vars: " + ", ".join(missing))
 
     has_auth = (
         "password" in kwargs

@@ -11,14 +11,14 @@ import anthropic
 import httpx
 import pytest
 
-from sonar.engine.llm import AnthropicClient, LLMClient, LLMConfig, _strip_code_fences
+from sonar.engine._anthropic import AnthropicClient
+from sonar.engine.llm import LLMClient, LLMConfig, _strip_code_fences, create_llm_client
 
 
 class TestLLMConfig:
     def test_defaults(self) -> None:
         config = LLMConfig()
-        assert config.provider == "anthropic"
-        assert config.model == "claude-haiku-4-5-20251001"
+        assert config.model == "anthropic/claude-haiku-4-5-20251001"
         assert config.max_tokens == 4096
         assert config.max_concurrent_calls == 5
 
@@ -47,11 +47,11 @@ class TestAnthropicClient:
     @pytest.mark.asyncio
     async def test_generate_calls_messages_create_with_expected_args(self) -> None:
         fake_response = _fake_anthropic_response("hello world")
-        with patch("sonar.engine.llm.anthropic.AsyncAnthropic") as mock_cls:
+        with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic") as mock_cls:
             mock_create = AsyncMock(return_value=fake_response)
             mock_cls.return_value.messages.create = mock_create
 
-            client = AnthropicClient(LLMConfig(max_tokens=256))
+            client = AnthropicClient(model="claude-haiku-4-5-20251001", max_tokens=256)
             result = await client.generate("hi", system="be nice")
 
             assert result == "hello world"
@@ -66,11 +66,11 @@ class TestAnthropicClient:
     @pytest.mark.asyncio
     async def test_generate_without_system_omits_system_arg(self) -> None:
         fake_response = _fake_anthropic_response("no system")
-        with patch("sonar.engine.llm.anthropic.AsyncAnthropic") as mock_cls:
+        with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic") as mock_cls:
             mock_create = AsyncMock(return_value=fake_response)
             mock_cls.return_value.messages.create = mock_create
 
-            client = AnthropicClient()
+            client = AnthropicClient(model="claude-haiku-4-5-20251001", max_tokens=4096)
             await client.generate("hi")
 
             kwargs = mock_create.await_args.kwargs
@@ -80,14 +80,10 @@ class TestAnthropicClient:
     @pytest.mark.asyncio
     async def test_generate_returns_content_0_text(self) -> None:
         fake_response = _fake_anthropic_response("extracted text")
-        with patch("sonar.engine.llm.anthropic.AsyncAnthropic") as mock_cls:
+        with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic") as mock_cls:
             mock_cls.return_value.messages.create = AsyncMock(return_value=fake_response)
-            client = AnthropicClient()
+            client = AnthropicClient(model="claude-haiku-4-5-20251001", max_tokens=4096)
             assert await client.generate("x") == "extracted text"
-
-    def test_constructor_rejects_api_key_kwarg(self) -> None:
-        with pytest.raises(TypeError):
-            AnthropicClient(api_key="sk-test")  # type: ignore[call-arg]
 
     @pytest.mark.asyncio
     async def test_logs_info_record_without_payload(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -96,11 +92,11 @@ class TestAnthropicClient:
         response_text = "nothing about the prompt appears here"
         fake_response = _fake_anthropic_response(response_text, input_tokens=111, output_tokens=9)
 
-        with patch("sonar.engine.llm.anthropic.AsyncAnthropic") as mock_cls:
+        with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic") as mock_cls:
             mock_cls.return_value.messages.create = AsyncMock(return_value=fake_response)
             caplog.clear()
             with caplog.at_level(logging.INFO, logger="sonar.engine.llm"):
-                client = AnthropicClient(LLMConfig(model="test-model"))
+                client = AnthropicClient(model="test-model", max_tokens=4096)
                 await client.generate(prompt, system=system)
 
         records = [r for r in caplog.records if r.name == "sonar.engine.llm"]
@@ -127,11 +123,11 @@ class TestAnthropicClient:
     async def test_no_log_on_provider_exception(self, caplog: pytest.LogCaptureFixture) -> None:
         request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
         api_error = anthropic.APIError(message="boom", request=request, body=None)
-        with patch("sonar.engine.llm.anthropic.AsyncAnthropic") as mock_cls:
+        with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic") as mock_cls:
             mock_cls.return_value.messages.create = AsyncMock(side_effect=api_error)
             caplog.clear()
             with caplog.at_level(logging.INFO, logger="sonar.engine.llm"):
-                client = AnthropicClient()
+                client = AnthropicClient(model="claude-haiku-4-5-20251001", max_tokens=4096)
                 with pytest.raises(anthropic.APIError):
                     await client.generate("x")
 
@@ -141,11 +137,50 @@ class TestAnthropicClient:
     async def test_generate_strips_code_fences(self) -> None:
         fenced = '```json\n{"key": "value"}\n```'
         fake_response = _fake_anthropic_response(fenced)
-        with patch("sonar.engine.llm.anthropic.AsyncAnthropic") as mock_cls:
+        with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic") as mock_cls:
             mock_cls.return_value.messages.create = AsyncMock(return_value=fake_response)
-            client = AnthropicClient()
+            client = AnthropicClient(model="claude-haiku-4-5-20251001", max_tokens=4096)
             result = await client.generate("x")
         assert result == '{"key": "value"}'
+
+
+class TestCreateLLMClient:
+    @pytest.fixture(autouse=True)
+    def _set_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    def test_anthropic_prefix_routes_to_anthropic_client(self) -> None:
+        with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic"):
+            client = create_llm_client(LLMConfig(model="anthropic/claude-haiku-4-5-20251001"))
+        assert isinstance(client, AnthropicClient)
+        assert client._model == "claude-haiku-4-5-20251001"
+
+    def test_bare_model_routes_to_openai_client(self) -> None:
+        from sonar.engine._openai import OpenAIClient
+
+        with patch("sonar.engine._openai.openai.AsyncOpenAI"):
+            client = create_llm_client(LLMConfig(model="gpt-4o"))
+        assert isinstance(client, OpenAIClient)
+        assert client._model == "gpt-4o"
+
+    def test_default_config_routes_to_anthropic(self) -> None:
+        with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic"):
+            client = create_llm_client(LLMConfig())
+        assert isinstance(client, AnthropicClient)
+        assert client._model == "claude-haiku-4-5-20251001"
+
+    def test_ollama_model_routes_to_openai_client(self) -> None:
+        from sonar.engine._openai import OpenAIClient
+
+        with patch("sonar.engine._openai.openai.AsyncOpenAI"):
+            client = create_llm_client(LLMConfig(model="llama3"))
+        assert isinstance(client, OpenAIClient)
+        assert client._model == "llama3"
+
+    def test_none_config_uses_defaults(self) -> None:
+        with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic"):
+            client = create_llm_client(None)
+        assert isinstance(client, AnthropicClient)
 
 
 class TestStripCodeFences:

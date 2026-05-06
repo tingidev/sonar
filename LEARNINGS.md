@@ -617,3 +617,53 @@ Five modules under `src/sonar/eval/`, one per mode (`quality.py`, `relationships
 - Total-judge-failure on `--descriptions` exits non-zero with a stderr warning.
 
 ---
+
+## Multi-Provider LLM
+
+### What we're building
+
+A two-SDK LLM dispatcher that replaces the Anthropic-only implementation. Users can now run `sonar scan` against any model: Anthropic natively, OpenAI natively, or any OpenAI-compatible endpoint (Ollama, Groq, Together, vLLM) via a configurable base URL. The dispatcher is the sole public entry point — downstream consumers (description engine, eval judge) see only the `LLMClient` ABC and never import provider SDKs directly.
+
+### Architecture
+
+- **Inputs:** `LLMConfig` (model string, max_tokens, max_concurrent_calls), environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `SONAR_LLM_BASE_URL`).
+- **Outputs:** an `LLMClient` instance (either `AnthropicClient` or `OpenAIClient`).
+- **Shape decisions:**
+  1. **Factory function as single entry point.** `create_llm_client(config)` in `llm.py` — all consumers import this, never concrete clients. Provider SDKs are encapsulated behind underscore-prefixed modules.
+  2. **Slash-prefix routing.** Model strings starting with `anthropic/` are stripped and routed to `AnthropicClient`; everything else passes as-is to `OpenAIClient`. No registry, no model-name detection heuristics.
+  3. **Module split: one file per concern.** `llm.py` (ABC + config + factory + utilities), `_anthropic.py`, `_openai.py`. Private modules for implementations, public interface stays in `llm.py`.
+
+### Key decisions
+
+- **Two SDKs, not one.** LiteLLM (65MB, March 2026 supply chain incident) was rejected. The `openai` SDK covers ~95% of providers via `base_url`; `anthropic` SDK retained for native Anthropic support (avoids compat endpoint limitations, future-proofs for prompt caching). Adding a third native SDK later is one file + one dispatcher rule.
+- **`SONAR_LLM_BASE_URL` over `OPENAI_BASE_URL`.** Sonar-namespaced to avoid conflicts with user's existing tooling. Applies only to the OpenAI path — ignored for Anthropic routing.
+- **`provider` field removed from `LLMConfig`.** Routing information lives in the model string. Single source of truth, no sync issues.
+- **`openai` as required dep, not optional.** 11MB footprint, shares transitive deps with `anthropic`. LLM client is core infrastructure, not a specialized connector like Snowflake.
+- **Fail-fast on missing API key.** `OpenAIClient` raises `EnvironmentError` at construction when neither `OPENAI_API_KEY` nor `SONAR_LLM_BASE_URL` is set. Construction is a system boundary — late auth errors from the SDK are unhelpful.
+
+### Implementation details
+
+- Lazy imports in the factory avoid loading both SDKs when only one is used. The `if model.startswith("anthropic/"):` branch imports `_anthropic`; the else branch imports `_openai`.
+- `AnthropicClient(model, max_tokens)` — constructor takes bare model ID (prefix already stripped by factory) and max_tokens. No `LLMConfig` dependency inside the client.
+- `OpenAIClient(model, max_tokens)` — reads env vars at construction time, passes `api_key or "placeholder"` to SDK (placeholder valid only when `base_url` is set for keyless local endpoints).
+- Both clients use `_strip_code_fences()` from `llm.py` — shared utility that removes markdown fences wrapping LLM responses. Imported by both implementations.
+- Observability: both clients emit one `INFO` log record per call on `sonar.engine.llm` with `model`, `input_tokens`, `output_tokens`, `latency_ms`. Never logs prompt or response content.
+
+### What goes wrong
+
+- **Silent model name typos.** A model string like `anthropi/claude-haiku` (typo, missing 'c') routes to OpenAI instead of Anthropic. The error surfaces as an OpenAI API rejection, not a Sonar-level "did you mean anthropic/..." message. Acceptable for now — model validation against a registry was explicitly deferred.
+- **Ollama model name collisions.** Bare model names (`llama3`, `codellama`) could theoretically collide with future OpenAI model names. Not a real risk today — OpenAI names are distinctive. If collision appears, user can qualify with the `anthropic/` prefix (or we add an `openai/` prefix route).
+- **`SONAR_LLM_BASE_URL` set globally.** If a user has this env var set for Ollama but wants to use OpenAI's actual API, the base URL overrides silently. Resolution: unset the env var, or use Anthropic's native path.
+
+### Decisions made
+
+- Two-SDK pattern over single-SDK (LiteLLM rejected for supply chain risk + footprint).
+- Slash-prefix routing over colon separator, well-known-name detection, or separate `--provider` flag.
+- Factory function over registry pattern or direct concrete imports.
+- `SONAR_LLM_BASE_URL` env var over CLI flag or baked-into-model-string magic.
+- `provider` field removed (breaking change, pre-launch — no active users).
+- `openai` as required dep over optional with dispatch-time guard.
+- Default model: `anthropic/claude-haiku-4-5-20251001` (zero-config backward compat).
+- Fail-fast `EnvironmentError` when targeting remote OpenAI without API key.
+
+---

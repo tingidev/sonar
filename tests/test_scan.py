@@ -84,7 +84,7 @@ def _install_fake_client(
     def _factory(*_args: object, **_kwargs: object) -> _FakeLLMClient:
         return _FakeLLMClient(failures)
 
-    monkeypatch.setattr(sonar.cli, "AnthropicClient", _factory)
+    monkeypatch.setattr(sonar.cli, "create_llm_client", _factory)
 
 
 @pytest.mark.integration
