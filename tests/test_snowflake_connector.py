@@ -21,7 +21,6 @@ import pytest
 from sonar.cli import (
     _ConnectorSpec,
     _DispatchError,
-    _print_scan_summary,
     _select_connector,
     _snowflake_kwargs_from_env,
     _snowflake_kwargs_from_url,
@@ -33,6 +32,7 @@ from sonar.connectors.snowflake import (
     _tables_from_rows,
 )
 from sonar.index.bundle import BundleMeta, ContextBundle
+from sonar.scan_output import print_scan_summary
 
 # ---------------------------------------------------------------------------
 # Pure-unit tests — no fakesnow needed.
@@ -537,21 +537,14 @@ class TestIdentifierCasePreservation:
 
 
 class TestScanSummaryOutput:
-    """Verifies the cross-DB FK count is rendered in the scan summary (task 4.8)."""
+    """Verifies the cross-DB FK count is rendered in the scan summary."""
 
     async def test_cross_db_count_emitted_when_nonzero(
         self, snowflake_db, capsys: pytest.CaptureFixture[str]
     ) -> None:
         async with SnowflakeConnector(_connect_kwargs()) as c:
             tables = await c.discover_tables()
-        # Force a dropped count to verify the renderer threads it through.
-        c.cross_database_foreign_keys_dropped = 3
 
-        spec = _ConnectorSpec(
-            connector=c,
-            connector_type="snowflake",
-            database_label="fake@a/TEST_DB/APP",
-        )
         meta = BundleMeta(
             schema_version=1,
             generated_at="2025-01-01T00:00:00Z",
@@ -565,21 +558,19 @@ class TestScanSummaryOutput:
             relationships=(),
         )
 
-        _print_scan_summary(spec, bundle, Path("/tmp/test"))
+        print_scan_summary(
+            database_label="fake@a/TEST_DB/APP",
+            bundle=bundle,
+            bundle_dir=Path("/tmp/test"),
+            elapsed_seconds=1.0,
+            cross_database_dropped=3,
+            cross_database_label="TEST_DB",
+        )
         out = capsys.readouterr().out
         assert "3 foreign keys reference tables outside database" in out
         assert "TEST_DB" in out
 
     def test_cross_db_count_silent_when_zero(self, capsys: pytest.CaptureFixture[str]) -> None:
-        # Postgres connector has no `cross_database_foreign_keys_dropped` attr;
-        # the renderer must fall back to 0 silently and not emit the line.
-        from sonar.connectors.postgres import PostgresConnector
-
-        spec = _ConnectorSpec(
-            connector=PostgresConnector("postgresql://u:p@h/db"),
-            connector_type="postgres",
-            database_label="u@h/db",
-        )
         meta = BundleMeta(
             schema_version=1,
             generated_at="2025-01-01T00:00:00Z",
@@ -587,6 +578,11 @@ class TestScanSummaryOutput:
             database="u@h/db",
         )
         bundle = ContextBundle(meta=meta, tables=(), descriptions={}, relationships=())
-        _print_scan_summary(spec, bundle, Path("/tmp/test"))
+        print_scan_summary(
+            database_label="u@h/db",
+            bundle=bundle,
+            bundle_dir=Path("/tmp/test"),
+            elapsed_seconds=0.5,
+        )
         out = capsys.readouterr().out
         assert "foreign keys reference tables outside" not in out

@@ -14,6 +14,7 @@ from sonar.connectors.types import Column, Table
 from sonar.engine._prompts import build_table_prompt
 from sonar.engine.describe import (
     ColumnDescription,
+    DescribeProgress,
     DescriptionEngine,
     DescriptionParseError,
     PIIRisk,
@@ -561,6 +562,137 @@ class TestLogging:
         for value in rec.__dict__.values():
             if isinstance(value, str):
                 assert sample_secret not in value
+
+
+# ---------------------------------------------------------------------------
+# Progress callback contract
+# ---------------------------------------------------------------------------
+
+
+class TestProgressCallback:
+    async def test_fires_start_and_completion_per_table(self) -> None:
+        tables = [_tiny_table(i) for i in range(3)]
+        samples = {(t.schema, t.name): [] for t in tables}
+        responses = [_valid_payload_for(t) for t in tables]
+        client = FakeLLMClient(responses=responses)
+        engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
+
+        events: list[DescribeProgress] = []
+        await engine.describe_database(tables, samples, on_progress=events.append)
+
+        started = [e for e in events if e.event == "started"]
+        completed = [e for e in events if e.event != "started"]
+        assert len(started) == 3
+        assert len(completed) == 3
+        assert all(e.elapsed_ms is None for e in started)
+        assert all(e.error_reason is None for e in started)
+        assert all(e.elapsed_ms is not None and e.elapsed_ms >= 0 for e in completed)
+        assert all(e.event == "ok" for e in completed)
+        # Each table reports its index/total.
+        seen_indices = {e.index for e in started}
+        assert seen_indices == {0, 1, 2}
+        assert all(e.total == 3 for e in events)
+
+    async def test_started_precedes_completion_for_each_table(self) -> None:
+        tables = [_tiny_table(i) for i in range(3)]
+        samples = {(t.schema, t.name): [] for t in tables}
+        responses = [_valid_payload_for(t) for t in tables]
+        client = FakeLLMClient(responses=responses)
+        engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
+
+        events: list[DescribeProgress] = []
+        await engine.describe_database(tables, samples, on_progress=events.append)
+
+        for i in range(3):
+            per_table = [e for e in events if e.index == i]
+            assert per_table[0].event == "started"
+            assert per_table[-1].event in {"ok", "parse_retry", "failed", "provider_error"}
+
+    async def test_provider_error_carries_reason(self) -> None:
+        table = _tiny_table(0)
+        client = FakeLLMClient(
+            responses=[
+                RuntimeError("rate limit exceeded"),
+                RuntimeError("rate limit exceeded"),
+                RuntimeError("rate limit exceeded"),
+            ]
+        )
+        engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
+
+        events: list[DescribeProgress] = []
+        result = await engine.describe_database(
+            [table], {(table.schema, table.name): []}, on_progress=events.append
+        )
+
+        terminal = [e for e in events if e.event != "started"]
+        assert len(terminal) == 1
+        assert terminal[0].event == "provider_error"
+        assert "rate limit" in (terminal[0].error_reason or "")
+        assert terminal[0].elapsed_ms is not None
+        assert result[(table.schema, table.name)] is None
+
+    async def test_parse_failure_carries_reason(self) -> None:
+        table = _tiny_table(0)
+        client = FakeLLMClient(responses=["not json", "still not json"])
+        engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
+
+        events: list[DescribeProgress] = []
+        result = await engine.describe_database(
+            [table], {(table.schema, table.name): []}, on_progress=events.append
+        )
+
+        terminal = [e for e in events if e.event != "started"]
+        assert len(terminal) == 1
+        assert terminal[0].event == "failed"
+        assert terminal[0].error_reason is not None and terminal[0].error_reason != ""
+        assert result[(table.schema, table.name)] is None
+
+    async def test_parse_retry_outcome_emitted(self) -> None:
+        table = _tiny_table(0)
+        client = FakeLLMClient(responses=["not json", _valid_payload_for(table)])
+        engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
+
+        events: list[DescribeProgress] = []
+        await engine.describe_database(
+            [table], {(table.schema, table.name): []}, on_progress=events.append
+        )
+
+        terminal = [e for e in events if e.event != "started"]
+        assert len(terminal) == 1
+        assert terminal[0].event == "parse_retry"
+        assert terminal[0].error_reason is None
+
+    async def test_no_callback_is_backward_compatible(self) -> None:
+        # Snapshot baseline behaviour and assert nothing else changes.
+        tables = [_tiny_table(i) for i in range(3)]
+        samples = {(t.schema, t.name): [] for t in tables}
+        responses = [_valid_payload_for(t) for t in tables]
+        client = FakeLLMClient(responses=responses)
+        engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
+
+        result = await engine.describe_database(tables, samples)
+
+        assert len(result) == 3
+        assert all(isinstance(v, TableDescription) for v in result.values())
+
+    async def test_callback_exception_does_not_break_scan(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        table = _tiny_table(0)
+        client = FakeLLMClient(responses=[_valid_payload_for(table)])
+        engine = DescriptionEngine(client, config=LLMConfig(max_concurrent_calls=5))
+
+        def _angry(event: DescribeProgress) -> None:
+            raise RuntimeError("boom")
+
+        caplog.clear()
+        with caplog.at_level(logging.ERROR, logger="sonar.engine.describe"):
+            result = await engine.describe_database(
+                [table], {(table.schema, table.name): []}, on_progress=_angry
+            )
+
+        assert isinstance(result[(table.schema, table.name)], TableDescription)
+        assert any("on_progress" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
