@@ -618,6 +618,80 @@ Five modules under `src/sonar/eval/`, one per mode (`quality.py`, `relationships
 
 ---
 
+## DuckDB Connector
+
+### What we're building
+
+The third data-source connector. DuckDB is an embedded, in-process analytics database — no server, no credentials, file-based (or in-memory). It's the standard local backend for dbt projects, notebook-driven analytics, and ad-hoc Parquet/CSV analysis. The connector discovers schemas, tables, columns, foreign keys, and row counts from `.duckdb` files, producing the same shared `Table`/`ForeignKey`/`Column` shapes that Postgres and Snowflake emit. Downstream consumers don't branch on connector type.
+
+### Architecture
+
+- **Inputs:** a file path (absolute or relative `.duckdb` file) or `:memory:`, resolved from a `duckdb://` prefix at CLI dispatch.
+- **Outputs:** same `list[Table]`, `list[ForeignKey]`, `list[dict]` shapes as Postgres and Snowflake.
+- **Shape decisions:**
+  1. **Async via `asyncio.to_thread`.** DuckDB's Python API is synchronous. In-process latency is microseconds, so the thread overhead is negligible, but the async wrapper keeps the connector shaped like the others. Callers use the same `async with` / `await` pattern regardless of connector.
+  2. **`read_only=True` for files, skipped for `:memory:`.** Read-only mode prevents accidental writes and allows scanning files held open by another writer (active dbt run, open notebook). DuckDB 1.3.x forbids `read_only=True` on in-memory connections — the only connector-specific runtime exception.
+  3. **Schema enumeration, not default-to-main.** DuckDB files from dbt routinely carry `raw`, `staging`, and `marts` schemas alongside `main`. Defaulting to `main` causes silent partial discovery. Full enumeration costs one lightweight query; the single-schema case returns `['main']` with negligible overhead.
+
+### Key decisions
+
+- **`asyncio.to_thread` over direct sync calls (D1).** The alternative was making DuckDB the first sync connector. Rejected because every caller is async, and the zero-cost wrapper keeps the public surface consistent. Revisit if DuckDB ships a native async Python API.
+
+- **Schema enumeration over defaulting to `main` (D2).** The dbt use case settled this — dbt-backed DuckDB files routinely have 3+ schemas. `information_schema.schemata` minus `information_schema` and `pg_catalog`, same exclusion list as Postgres. The `SELECT DISTINCT` is DuckDB-specific (see implementation details).
+
+- **Row counts from `duckdb_tables()` (D3).** DuckDB's built-in table function exposes `estimated_size`, analogous to Postgres's `pg_class.reltuples`. Joined into the discovery query at no extra round-trip cost. `COUNT(*)` was rejected for the same reason as Postgres — expensive for large files.
+
+- **Separate `_duckdb_sql.py` (D4).** Same pattern as `_sql.py` (Postgres) and `_snowflake_sql.py`. The queries look structurally similar across connectors but differ in row-count source, parameterisation syntax, and quoting rules. Shared SQL was considered; the abstraction cost exceeds the duplication cost at three connectors.
+
+- **No cross-database FK filtering (D6).** DuckDB files are self-contained single-catalog databases. FKs can only reference tables within the same file. No filtering logic needed — unlike Snowflake, where cross-database FKs are a real edge case requiring explicit handling.
+
+- **`duckdb://` prefix DSN, no bare keyword (D5).** DuckDB has no credential-based auth, so a bare keyword makes no sense. The prefix is stripped to obtain the raw path: `duckdb:///abs/path` to `/abs/path`, `duckdb://:memory:` to `:memory:`. A bare `.duckdb` file path was considered but rejected as ambiguous in the dispatch chain.
+
+### Implementation details
+
+- **`SELECT DISTINCT` on `information_schema.schemata`.** DuckDB 1.3.x returns duplicate rows for the same schema — up to 3 rows for `main` in a clean database. Without `DISTINCT`, `_non_system_schemas()` returns `["main", "main", "main"]`, inflating the placeholder count and producing redundant query scope. Discovered during implementation, not during design.
+
+- **Dynamic `?` placeholder construction.** `tables_and_columns_query(n)` builds `IN (?, ?, ...)` with exactly `n` positional parameters. DuckDB's driver doesn't support list-valued bind (`IN ?` where `?` is a Python list) — the same pattern as Snowflake's `%s` approach, arrived at independently. The function validates `n > 0` and the caller guarantees it by early-returning empty on zero schemas.
+
+- **`read_only = self._path != ":memory:"`.** DuckDB 1.3.x raises `Catalog Error: Cannot launch in-memory database in read-only mode!` if you pass `read_only=True` to a `:memory:` connection. The design doc (D7) specified `read_only=True` unconditionally; the implementation had to diverge. The one-line conditional is the narrowest possible exception — every file path still gets read-only protection.
+
+- **`Path(path).name` for `database_label`.** Raw file paths embed usernames (`/Users/joeri/analytics.duckdb`). The label is the filename component only (`analytics.duckdb`), preventing personal filesystem paths from leaking into shared bundles. Caught during audit, not during implementation.
+
+- **`_fetch_dicts` / `_fetch_rows` helper split.** DuckDB's cursor returns tuples by default. `_fetch_dicts` zips column names from `cursor.description` with row tuples — same pattern as Snowflake's `_fetch_dicts`. `_fetch_rows` returns raw tuples for the schema enumeration query where dict overhead is pointless.
+
+- **`_quote_identifier` matches Snowflake exactly.** Double-quote wrapping, internal double-quote escaped to `""`, null-byte rejection. DuckDB and Snowflake both follow SQL-standard double-quote identifier quoting. No shared helper yet — the duplication is two identical 4-line functions, not worth abstracting until a pattern change forces divergence.
+
+- **Lazy import of `DuckDBConnector` inside `_select_connector`.** Same pattern as Snowflake: `import duckdb` at the top of `duckdb.py` would fail if the extra isn't installed. `_ensure_duckdb_driver()` runs at dispatch time; the connector import happens after the guard passes.
+
+- **`_tables_from_rows` grouping loop.** The discovery query returns one row per column, ordered by `(schema, table, ordinal_position)`. The assembler iterates once, accumulating columns into the current table and emitting a `Table` on each key change. Same shape as Snowflake's `_tables_from_rows`. No dict-based grouping — the ORDER BY guarantee makes a single-pass accumulator correct.
+
+### What goes wrong
+
+- **`estimated_size` staleness.** DuckDB's row count estimate can be stale for files that haven't been vacuumed or analysed after bulk operations. Same looseness as Postgres `reltuples`. Surfaced as `row_count: int | None`; downstream consumers handle `None`.
+
+- **Single-writer lock.** DuckDB files allow only one writer at a time. If another process has the file open for writing, the connector's `connect()` call fails with a clear driver-level error. No workaround needed — the error message is unambiguous.
+
+- **DuckDB version-specific behaviour.** The duplicate-schemata rows and read-only/:memory: incompatibility are 1.3.x-specific. Future DuckDB versions may fix these. The workarounds (`DISTINCT`, path-conditional `read_only`) are defensive and harmless if the underlying issues are resolved — `DISTINCT` on an already-distinct result is a no-op, and the `:memory:` skip is a correct special case regardless.
+
+- **MotherDuck not supported.** DuckDB's cloud service (`md:` prefix) is explicitly out of scope. A user passing `duckdb://md:my_database` would get an opaque DuckDB connection error, not a Sonar-level "MotherDuck not supported" message. Acceptable — MotherDuck support is a separate connector concern if it ever matters.
+
+### Decisions made
+
+- `asyncio.to_thread` wrapping the sync driver; in-process overhead negligible.
+- Schema enumeration (not default-to-main); `SELECT DISTINCT` on schemata for DuckDB 1.3.x duplicates.
+- Row counts from `duckdb_tables().estimated_size`; `None` when unavailable.
+- Separate `_duckdb_sql.py`; no shared SQL module across connectors.
+- `duckdb://` prefix DSN; strip prefix to raw path; no bare keyword form.
+- `read_only=True` for file paths; skipped for `:memory:` (DuckDB 1.3.x forbids it).
+- No cross-database FK filtering — DuckDB is self-contained single catalog.
+- Dynamic `?` placeholders for schema IN clause via `tables_and_columns_query(n)`.
+- `Path(path).name` for `database_label` to avoid leaking filesystem paths.
+- Local `_quote_identifier` matching Snowflake convention; no shared helper yet.
+- Real DuckDB file/memory databases in tests — no fakes, no mocks, no external services.
+- `_ensure_duckdb_driver()` guard at dispatch time with lazy import of connector class.
+
+---
+
 ## Multi-Provider LLM
 
 ### What we're building
