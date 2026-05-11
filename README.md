@@ -218,7 +218,11 @@ Database              Sonar                        Your Agent
 ### Prerequisites
 
 - Python 3.11+
-- An Anthropic API key (for LLM-powered descriptions)
+- An LLM provider — any of the following:
+  - **Local model via Ollama** (recommended for sensitive data — nothing leaves your machine)
+  - Anthropic API key (Claude Haiku)
+  - OpenAI API key
+  - Any OpenAI-compatible endpoint (vLLM, LiteLLM, etc.)
 
 ### Install
 
@@ -228,14 +232,31 @@ pip install sonar-ai
 
 ### Scan a database
 
+**With a local model (zero data leakage):**
+
+```bash
+# Start Ollama with a capable model (e.g. Qwen 3.6 27B, Llama 3.3, Mistral)
+ollama pull qwen3.6:27b
+
+# Scan — your data never leaves the machine
+sonar scan --model qwen3.6:27b --base-url http://localhost:11434/v1 \
+  postgresql://user:pass@localhost/mydb
+```
+
+**With a cloud provider:**
+
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-
-# Scan and generate descriptions (writes to .sonar/ by default)
 sonar scan postgresql://user:pass@localhost/mydb
 
-# Or with concurrency control for rate-limited API keys
-sonar scan --concurrency 3 postgresql://user:pass@localhost/mydb
+# Or with OpenAI
+export OPENAI_API_KEY=sk-...
+sonar scan --model gpt-4.1-mini postgresql://user:pass@localhost/mydb
+```
+
+```bash
+# Control concurrency for rate-limited APIs or local models
+sonar scan --concurrency 2 postgresql://user:pass@localhost/mydb
 ```
 
 ### Scan Snowflake
@@ -355,7 +376,7 @@ For each table, Sonar samples representative rows and sends them (along with the
 
 ### 3. Relationship Mapping
 
-Foreign keys are extracted directly from the database. (Inferred relationships from naming patterns and data overlap are planned for Phase 2.)
+Foreign keys are extracted directly from the database. Additionally, Sonar infers relationships from naming patterns (e.g. `user_id` referencing `users.id`) to recover the FK graph in databases that don't declare them — common in data warehouses like Snowflake.
 
 ### 4. Bundle Generation
 
@@ -385,6 +406,16 @@ The bundle is portable — commit it to a repo, share it with your team, point a
 
 The first four tools are stateless reads over the bundle — no database connection, no credentials. The `sample` tool is registered only when a DSN is provided, opening short-lived connections per call with a hard cap (20 rows max) and automatic PII stripping.
 
+## Data Privacy
+
+Sonar is designed to scan databases containing sensitive data. Two levels of protection:
+
+**Run locally, keep data local.** Point Sonar at a local LLM (Ollama, vLLM) and your data never crosses a network boundary. Schema metadata and sample rows stay on your machine. This is the recommended setup for production databases, healthcare data, financial records, or anything subject to compliance requirements.
+
+**PII stripping on the agent side.** Even when using a cloud LLM for scanning, the MCP server that agents connect to automatically strips sensitive columns from live queries (see below).
+
+Scanning sends table schemas and small row samples (5 rows per table) to the LLM for description generation. With a local model, this stays on-machine. With a cloud provider, evaluate whether sample rows from your database are acceptable to send to a third-party API.
+
 ## PII Handling
 
 Sonar classifies every column by PII risk during the scan. When the `sample` tool returns live rows, columns classified as `medium` or `high` risk are automatically nulled:
@@ -403,8 +434,8 @@ The agent sees the column exists but never receives sensitive values. Override w
 
 ```
 src/sonar/
-  connectors/     Data source adapters (Postgres, Snowflake)
-  engine/         LLM client + description generation + relationship mapping
+  connectors/     Data source adapters (Postgres, Snowflake, DuckDB)
+  engine/         Multi-provider LLM client + description generation + relationship mapping
   index/          Context bundle storage and loading
   mcp/            MCP server and tool implementations
   cli.py          CLI entrypoint
@@ -414,14 +445,14 @@ Sonar is async throughout (psycopg3, FastMCP), uses frozen dataclasses for immut
 
 ## Roadmap
 
-Sonar is in active development. Current status: **Phase 1 complete** — Postgres connector, context engine, MCP server, all working end-to-end.
+Sonar is in active development. Current status: **Phase 2 complete** — Postgres, Snowflake, and DuckDB connectors, multi-provider LLM support, inferred relationships, evaluation toolkit.
 
-| Phase | Timeline | Scope |
-|-------|----------|-------|
-| **Phase 1** | April 2026 | Postgres + context engine + MCP server |
-| **Phase 2** | June-July 2026 | Snowflake connector, inferred relationships, evaluation toolkit |
-| **Phase 3** | Aug-Sep 2026 | S3/file connector, context versioning (schema drift tracking) |
-| **Phase 4** | Q4 2026 | Enterprise features, community contributions |
+| Phase | Status | Scope |
+|-------|--------|-------|
+| **Phase 1** | Complete | Postgres connector, context engine, MCP server |
+| **Phase 2** | Complete | Snowflake + DuckDB connectors, inferred relationships, evaluation toolkit |
+| **Phase 3** | In progress | Multi-provider LLM (Anthropic, OpenAI, Ollama), BigQuery connector |
+| **Phase 4** | Planned | Enterprise features, context versioning, community contributions |
 
 See [ROADMAP.md](ROADMAP.md) for detailed milestones.
 
@@ -429,8 +460,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed milestones.
 
 Sonar is open to contributions. The most impactful areas:
 
-- **Connectors** — MySQL, SQLite, Snowflake, BigQuery, DuckDB
-- **LLM providers** — OpenAI, local models via Ollama
+- **Connectors** — MySQL, SQLite, BigQuery, S3/Parquet
 - **Bug reports and feature requests** — [open an issue](https://github.com/tingidev/sonar/issues)
 
 Development setup:

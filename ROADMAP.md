@@ -39,6 +39,12 @@ Multi-provider LLM support, two additional connectors.
 
 - `description-quality-push` — Better prompting, length calibration, multi-pass critique. Parked pending real-user feedback on current quality.
 
+- `mcp-surface-hardening` — Three MCP-standard gaps identified in a review against the official MCP reference server implementations (May 2026, https://github.com/modelcontextprotocol/servers):
+  1. **Parameter-level descriptions missing.** Tool descriptions in `server.py` are tool-level strings only. FastMCP supports `Annotated[str, Field(description="...")]` on parameters; adding these would make the tool manifest self-documenting to agents making cold calls — especially important for `describe` and `relationships` where `schema` has a specific meaning (PostgreSQL schema name, e.g. `"public"`) that agents cannot infer.
+  2. **`SampleOutcome` Literal is incomplete.** `audit.py:16` defines `SampleOutcome = Literal["ok", "rejected_cap", "rejected_unknown_table", "db_error"]` but `sample_tool.py:49` emits `outcome="rejected_invalid_limit"` which is not in the Literal. Works at runtime; mypy/pyright will flag it. Fix: add `"rejected_invalid_limit"` to the Literal.
+  3. **Bundle data fits the MCP Resource pattern better than Tools.** `discover` and `describe` expose static catalog content — the right MCP primitive for browsable, addressable content is a Resource (e.g. `sonar://schema/public/batch_records`), not a Tool. Tools are for actions; Resources are for content agents navigate. This would make the server composable with a wider range of MCP clients and allow agents to browse the catalog without burning tool-call budget. Requires FastMCP Resource support and a URI scheme design.
+  Deferred because: (a) item 2 is low severity (runtime behaviour is correct); (b) items 1 and 3 have no external consumers yet to validate the right description language or URI scheme against; (c) item 3 is an additive surface change — the Tool surface continues to work after Resources are added. **Revisit when** the first external consumer integrates against the MCP server, or when evaluation surfaces agent confusion caused by thin tool descriptions. Reversibility: cheap for 1 and 2 (additive / type-only); moderate for 3 (new URI scheme becomes a public contract once external consumers depend on it).
+
 ## Rules
 
 - One change in flight at a time. Propose, apply, archive — then start the next.
