@@ -7,7 +7,7 @@ import time
 
 import anthropic
 
-from sonar.engine.llm import LLMClient, _strip_code_fences
+from sonar.engine.llm import LLMClient, strip_code_fences
 
 _LOGGER = logging.getLogger("sonar.engine.llm")
 
@@ -46,4 +46,4 @@ class AnthropicClient(LLMClient):
                 "latency_ms": latency_ms,
             },
         )
-        return _strip_code_fences(response.content[0].text)
+        return strip_code_fences(response.content[0].text)

@@ -13,7 +13,9 @@ from typing import Literal
 
 _AUDIT = logging.getLogger("sonar.mcp.audit")
 
-SampleOutcome = Literal["ok", "rejected_cap", "rejected_unknown_table", "db_error"]
+SampleOutcome = Literal[
+    "ok", "rejected_cap", "rejected_invalid_limit", "rejected_unknown_table", "db_error"
+]
 
 
 def emit_sample_audit(

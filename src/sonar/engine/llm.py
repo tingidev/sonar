@@ -12,6 +12,7 @@ class LLMConfig:
     model: str = "anthropic/claude-haiku-4-5-20251001"
     max_tokens: int = 4096
     max_concurrent_calls: int = 5
+    base_url: str | None = None
 
 
 class LLMClient(abc.ABC):
@@ -37,13 +38,13 @@ def create_llm_client(config: LLMConfig | None = None) -> LLMClient:
 
     from sonar.engine._openai import OpenAIClient
 
-    return OpenAIClient(model=config.model, max_tokens=config.max_tokens)
+    return OpenAIClient(model=config.model, max_tokens=config.max_tokens, base_url=config.base_url)
 
 
 _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*\n(.*?)\n```\s*$", re.DOTALL)
 
 
-def _strip_code_fences(text: str) -> str:
+def strip_code_fences(text: str) -> str:
     """Remove markdown code fences wrapping the response, if present."""
     m = _CODE_FENCE_RE.match(text.strip())
     return m.group(1) if m else text

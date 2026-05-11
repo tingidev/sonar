@@ -8,7 +8,7 @@ import time
 
 import openai
 
-from sonar.engine.llm import LLMClient, _strip_code_fences
+from sonar.engine.llm import LLMClient, strip_code_fences
 
 _LOGGER = logging.getLogger("sonar.engine.llm")
 
@@ -20,14 +20,14 @@ class OpenAIClient(LLMClient):
     via the `SONAR_LLM_BASE_URL` environment variable.
     """
 
-    def __init__(self, model: str, max_tokens: int) -> None:
+    def __init__(self, model: str, max_tokens: int, base_url: str | None = None) -> None:
         self._model = model
         self._max_tokens = max_tokens
 
-        base_url = os.environ.get("SONAR_LLM_BASE_URL")
+        effective_base_url = base_url or os.environ.get("SONAR_LLM_BASE_URL")
         api_key = os.environ.get("OPENAI_API_KEY")
 
-        if not base_url and not api_key:
+        if not effective_base_url and not api_key:
             raise EnvironmentError(
                 "OPENAI_API_KEY must be set when using OpenAI-compatible models "
                 "(or set SONAR_LLM_BASE_URL for local endpoints)"
@@ -35,7 +35,7 @@ class OpenAIClient(LLMClient):
 
         self._client = openai.AsyncOpenAI(
             api_key=api_key or "placeholder",
-            base_url=base_url,
+            base_url=effective_base_url,
             max_retries=2,
         )
 
@@ -64,4 +64,4 @@ class OpenAIClient(LLMClient):
             },
         )
         content = response.choices[0].message.content or ""
-        return _strip_code_fences(content)
+        return strip_code_fences(content)
