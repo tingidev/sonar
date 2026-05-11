@@ -17,6 +17,8 @@ from typing import Any
 import duckdb
 
 from sonar.connectors import _duckdb_sql as _ddb_sql
+from sonar.connectors._cursor_utils import fetch_dicts as _fetch_dicts
+from sonar.connectors._cursor_utils import fetch_rows as _fetch_rows
 from sonar.connectors.serialize import _serialize_row
 from sonar.connectors.types import Column, ForeignKey, Table, _reject_dotted_identifier
 
@@ -49,7 +51,8 @@ class DuckDBConnector:
         if not resolved:
             return []
         rows = await asyncio.to_thread(
-            self._fetch_dicts,
+            _fetch_dicts,
+            self._conn,
             _ddb_sql.tables_and_columns_query(len(resolved)),
             resolved,
         )
@@ -58,7 +61,7 @@ class DuckDBConnector:
     async def discover_relationships(self) -> list[ForeignKey]:
         if self._conn is None:
             raise RuntimeError(_CONTEXT_MANAGER_REQUIRED)
-        rows = await asyncio.to_thread(self._fetch_dicts, _ddb_sql.FOREIGN_KEYS, [])
+        rows = await asyncio.to_thread(_fetch_dicts, self._conn, _ddb_sql.FOREIGN_KEYS, [])
         return _foreign_keys_from_rows(rows)
 
     async def sample_table(self, schema: str, table: str, limit: int = 5) -> list[dict]:
@@ -72,7 +75,7 @@ class DuckDBConnector:
             f"SELECT * FROM {_quote_identifier(schema)}.{_quote_identifier(table)} "
             f"LIMIT {int(limit)}"
         )
-        rows = await asyncio.to_thread(self._fetch_dicts, query, [])
+        rows = await asyncio.to_thread(_fetch_dicts, self._conn, query, [])
         return [_serialize_row(row) for row in rows]
 
     async def _resolve_schemas(self, schemas: list[str] | None) -> list[str]:
@@ -81,27 +84,8 @@ class DuckDBConnector:
         return await self._non_system_schemas()
 
     async def _non_system_schemas(self) -> list[str]:
-        rows = await asyncio.to_thread(self._fetch_rows, _ddb_sql.NON_SYSTEM_SCHEMAS, [])
+        rows = await asyncio.to_thread(_fetch_rows, self._conn, _ddb_sql.NON_SYSTEM_SCHEMAS, [])
         return [r[0] for r in rows]
-
-    def _fetch_dicts(self, query: str, params: list) -> list[dict]:
-        assert self._conn is not None
-        cur = self._conn.cursor()
-        try:
-            cur.execute(query, params)
-            columns = [desc[0] for desc in cur.description]
-            return [dict(zip(columns, row)) for row in cur.fetchall()]
-        finally:
-            cur.close()
-
-    def _fetch_rows(self, query: str, params: list) -> list[tuple]:
-        assert self._conn is not None
-        cur = self._conn.cursor()
-        try:
-            cur.execute(query, params)
-            return cur.fetchall()
-        finally:
-            cur.close()
 
 
 def _tables_from_rows(rows: list[dict]) -> list[Table]:
@@ -128,8 +112,7 @@ def _tables_from_rows(rows: list[dict]) -> list[Table]:
                 )
             current_key = key
             current_columns = []
-            raw = row["row_count"]
-            current_row_count = int(raw) if raw is not None else None
+            current_row_count = _row_count_from_row(row)
         current_columns.append(_column_from_row(row))
 
     if current_key is not None:
@@ -143,6 +126,13 @@ def _tables_from_rows(rows: list[dict]) -> list[Table]:
         )
 
     return tables
+
+
+def _row_count_from_row(row: dict) -> int | None:
+    raw = row["row_count"]
+    if raw is None:
+        return None
+    return int(raw)
 
 
 def _column_from_row(row: dict) -> Column:

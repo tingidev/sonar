@@ -10,6 +10,7 @@ def _backtick(name: str) -> str:
     # Local quoter — module-private to keep this file dependency-free.
     # Mirrors `bigquery._bq_quote` but lives here so the SQL builder is
     # importable without bringing in the connector module.
+    # Cross-reference: keep in sync with `_bq_quote` in connectors/bigquery.py.
     if "\x00" in name:
         raise ValueError(f"identifier contains null byte: {name!r}")
     escaped = name.replace("`", "\\`")

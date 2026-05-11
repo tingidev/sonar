@@ -16,6 +16,8 @@ from typing import Any
 import snowflake.connector
 
 from sonar.connectors import _snowflake_sql as _sf_sql
+from sonar.connectors._cursor_utils import fetch_dicts as _fetch_dicts
+from sonar.connectors._cursor_utils import fetch_rows as _fetch_rows
 from sonar.connectors.serialize import _serialize_row
 from sonar.connectors.types import Column, ForeignKey, Table, _reject_dotted_identifier
 
@@ -49,7 +51,9 @@ class SnowflakeConnector:
         return self
 
     async def _probe_row_count_available(self) -> bool:
-        rows = await asyncio.to_thread(self._fetch_rows, _sf_sql.ROW_COUNT_AVAILABLE_PROBE, ())
+        rows = await asyncio.to_thread(
+            _fetch_rows, self._conn, _sf_sql.ROW_COUNT_AVAILABLE_PROBE, ()
+        )
         return bool(rows and rows[0][0])
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -67,7 +71,8 @@ class SnowflakeConnector:
 
         try:
             rows = await asyncio.to_thread(
-                self._fetch_dicts,
+                _fetch_dicts,
+                self._conn,
                 _sf_sql.tables_and_columns_query(
                     len(resolved), has_row_count=self._row_count_available
                 ),
@@ -81,7 +86,8 @@ class SnowflakeConnector:
                 self.database,
             )
             rows = await asyncio.to_thread(
-                self._fetch_dicts,
+                _fetch_dicts,
+                self._conn,
                 _sf_sql.tables_and_columns_query(
                     len(resolved),
                     has_row_count=self._row_count_available,
@@ -96,7 +102,7 @@ class SnowflakeConnector:
             raise RuntimeError(_CONTEXT_MANAGER_REQUIRED)
 
         try:
-            rows = await asyncio.to_thread(self._fetch_dicts, _sf_sql.FOREIGN_KEYS, ())
+            rows = await asyncio.to_thread(_fetch_dicts, self._conn, _sf_sql.FOREIGN_KEYS, ())
         except snowflake.connector.errors.ProgrammingError:
             _LOGGER.warning(
                 "constraint views not accessible on database %r; " "foreign key discovery disabled",
@@ -125,7 +131,7 @@ class SnowflakeConnector:
             f"SELECT * FROM {_quote_identifier(schema)}.{_quote_identifier(table)} "
             f"LIMIT {int(limit)}"
         )
-        rows = await asyncio.to_thread(self._fetch_dicts, query, ())
+        rows = await asyncio.to_thread(_fetch_dicts, self._conn, query, ())
         return [_serialize_row(row) for row in rows]
 
     async def _resolve_schemas(self, schemas: list[str] | None) -> list[str]:
@@ -136,27 +142,8 @@ class SnowflakeConnector:
         return await self._non_system_schemas()
 
     async def _non_system_schemas(self) -> list[str]:
-        rows = await asyncio.to_thread(self._fetch_rows, _sf_sql.NON_SYSTEM_SCHEMAS, ())
+        rows = await asyncio.to_thread(_fetch_rows, self._conn, _sf_sql.NON_SYSTEM_SCHEMAS, ())
         return [r[0] for r in rows]
-
-    def _fetch_dicts(self, query: str, params: tuple) -> list[dict]:
-        assert self._conn is not None
-        cur = self._conn.cursor()
-        try:
-            cur.execute(query, params)
-            columns = [desc[0] for desc in cur.description]
-            return [dict(zip(columns, row)) for row in cur.fetchall()]
-        finally:
-            cur.close()
-
-    def _fetch_rows(self, query: str, params: tuple) -> list[tuple]:
-        assert self._conn is not None
-        cur = self._conn.cursor()
-        try:
-            cur.execute(query, params)
-            return cur.fetchall()
-        finally:
-            cur.close()
 
 
 def _tables_from_rows(rows: list[dict]) -> list[Table]:

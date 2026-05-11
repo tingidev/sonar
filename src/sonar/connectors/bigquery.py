@@ -127,6 +127,10 @@ class BigQueryConnector:
         if self._client is None:
             raise RuntimeError(_CONTEXT_MANAGER_REQUIRED)
 
+        # Relationships are discovered across all datasets in the project, not
+        # scoped to the datasets used in discover_tables. This matches the other
+        # connectors where FK discovery is database-wide. Passing None to
+        # _resolve_datasets unconditionally enumerates all datasets.
         datasets = await self._resolve_datasets(None)
         result: list[ForeignKey] = []
         dropped = 0
@@ -267,7 +271,10 @@ class BigQueryConnector:
 
 
 def _bq_quote(name: str) -> str:
-    """BigQuery identifier quoting: wrap in backticks, escape internal backticks."""
+    """BigQuery identifier quoting: wrap in backticks, escape internal backticks.
+
+    Cross-reference: keep in sync with `_backtick` in connectors/_bigquery_sql.py.
+    """
     if "\x00" in name:
         raise ValueError(f"identifier contains null byte: {name!r}")
     escaped = name.replace("`", "\\`")

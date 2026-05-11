@@ -52,6 +52,8 @@ class PostgresConnector:
     async def sample_table(self, schema: str, table: str, limit: int = 5) -> list[dict]:
         if self._conn is None:
             raise RuntimeError(_CONTEXT_MANAGER_REQUIRED)
+        if not isinstance(limit, int) or limit < 0:
+            raise ValueError(f"limit must be a non-negative int, got {limit!r}")
 
         query = _pgsql.SQL("SELECT * FROM {}.{} LIMIT {}").format(
             _pgsql.Identifier(schema),
