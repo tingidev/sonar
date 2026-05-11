@@ -12,6 +12,34 @@ import pytest
 from sonar.cli import main
 
 
+class TestScanArgParsing:
+    def test_concurrency_zero_exits_with_error(self, capsys: pytest.CaptureFixture[str]) -> None:
+        exit_code = main(["scan", "--concurrency", "0", "postgresql://u:p@h/db"])
+        assert exit_code == 2
+        captured = capsys.readouterr()
+        assert "--concurrency must be 1 or greater" in captured.err
+
+    def test_concurrency_negative_exits_with_error(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        exit_code = main(["scan", "--concurrency", "-1", "postgresql://u:p@h/db"])
+        assert exit_code == 2
+        captured = capsys.readouterr()
+        assert "--concurrency must be 1 or greater" in captured.err
+
+    def test_base_url_in_help_output(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with pytest.raises(SystemExit):
+            main(["scan", "--help"])
+        captured = capsys.readouterr()
+        assert "--base-url" in captured.out
+
+    def test_missing_dsn_exits_nonzero(self, capsys: pytest.CaptureFixture[str]) -> None:
+        exit_code = main(["scan"])
+        assert exit_code == 2
+        captured = capsys.readouterr()
+        assert "DSN required" in captured.err
+
+
 class TestServeCli:
     def test_help_exits_cleanly(self, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(SystemExit) as excinfo:

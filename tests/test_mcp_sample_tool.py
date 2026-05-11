@@ -163,7 +163,6 @@ def fake_connect(monkeypatch: pytest.MonkeyPatch) -> _FakeConnect:
 
 
 class TestCap:
-    @pytest.mark.asyncio
     async def test_cap_accept_at_max(
         self,
         bundle: ContextBundle,
@@ -174,7 +173,6 @@ class TestCap:
         assert len(rows) == 1
         assert fake_connect.calls == 1
 
-    @pytest.mark.asyncio
     async def test_cap_reject_above_max_no_connection(
         self,
         bundle: ContextBundle,
@@ -193,7 +191,6 @@ class TestCap:
         assert records[0].limit_requested == MAX_SAMPLE_ROWS + 1
         assert records[0].limit_effective is None
 
-    @pytest.mark.asyncio
     async def test_cap_reject_zero_limit(
         self,
         bundle: ContextBundle,
@@ -210,7 +207,6 @@ class TestCap:
         assert len(records) == 1
         assert records[0].outcome == "rejected_invalid_limit"
 
-    @pytest.mark.asyncio
     async def test_cap_reject_negative_limit(
         self,
         bundle: ContextBundle,
@@ -227,7 +223,6 @@ class TestCap:
         assert len(records) == 1
         assert records[0].outcome == "rejected_invalid_limit"
 
-    @pytest.mark.asyncio
     async def test_default_limit_when_omitted(
         self,
         bundle: ContextBundle,
@@ -246,7 +241,6 @@ class TestCap:
 
 
 class TestPIIStripping:
-    @pytest.mark.asyncio
     async def test_high_pii_column_stripped_by_default(
         self,
         bundle: ContextBundle,
@@ -256,7 +250,6 @@ class TestPIIStripping:
         rows = await sample("public", "people")
         assert rows[0]["email"] is None
 
-    @pytest.mark.asyncio
     async def test_medium_pii_column_stripped_by_default(
         self,
         bundle: ContextBundle,
@@ -266,7 +259,6 @@ class TestPIIStripping:
         rows = await sample("public", "people")
         assert rows[0]["city"] is None
 
-    @pytest.mark.asyncio
     async def test_low_pii_column_passes_through(
         self,
         bundle: ContextBundle,
@@ -276,7 +268,6 @@ class TestPIIStripping:
         rows = await sample("public", "people")
         assert rows[0]["country"] == "Spain"
 
-    @pytest.mark.asyncio
     async def test_allow_pii_flag_passes_all_columns(
         self,
         bundle: ContextBundle,
@@ -287,7 +278,6 @@ class TestPIIStripping:
         assert rows[0]["email"] == "alice@example.com"
         assert rows[0]["city"] == "Barcelona"
 
-    @pytest.mark.asyncio
     async def test_column_without_classification_passes_through(
         self,
         fake_connect: _FakeConnect,
@@ -312,7 +302,6 @@ class TestPIIStripping:
 
 
 class TestIdentifierSafety:
-    @pytest.mark.asyncio
     async def test_identifier_quoting_stops_injection_payload(
         self,
         fake_connect: _FakeConnect,
@@ -362,7 +351,6 @@ def _strip_quoted_identifiers(sql: str) -> str:
 
 
 class TestDsnScrub:
-    @pytest.mark.asyncio
     async def test_connection_failure_scrubs_dsn(
         self,
         bundle: ContextBundle,
@@ -396,7 +384,6 @@ class TestDsnScrub:
 
 
 class TestAudit:
-    @pytest.mark.asyncio
     async def test_ok_outcome_audit_emitted(
         self,
         bundle: ContextBundle,
@@ -424,7 +411,6 @@ class TestAudit:
 
 
 class TestRowSerialisation:
-    @pytest.mark.asyncio
     async def test_uuid_and_datetime_serialised_as_strings(
         self,
         bundle: ContextBundle,
@@ -455,7 +441,6 @@ class TestRowSerialisation:
 
 
 class TestUnknownTableRejection:
-    @pytest.mark.asyncio
     async def test_unknown_table_rejected_before_db_call(
         self,
         bundle: ContextBundle,
@@ -473,7 +458,6 @@ class TestUnknownTableRejection:
         assert records[0].outcome == "rejected_unknown_table"
         assert records[0].limit_effective is None
 
-    @pytest.mark.asyncio
     async def test_unknown_schema_rejected(
         self,
         bundle: ContextBundle,
@@ -484,7 +468,6 @@ class TestUnknownTableRejection:
             await sample("secret_schema", "people", limit=1)
         assert fake_connect.calls == 0
 
-    @pytest.mark.asyncio
     async def test_known_table_passes_through(
         self,
         bundle: ContextBundle,

@@ -449,21 +449,23 @@ class TestSharedDatabaseFallback:
     ) -> None:
         import snowflake.connector.errors
 
+        import sonar.connectors.snowflake as _sf_module
+
+        original = _sf_module._fetch_dicts
+        call_count = 0
+
+        def _failing_first_call(conn, query, params):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise snowflake.connector.errors.ProgrammingError(
+                    msg="Object 'TEST_DB.INFORMATION_SCHEMA.KEY_COLUMN_USAGE' "
+                    "does not exist or not authorized."
+                )
+            return original(conn, query, params)
+
+        monkeypatch.setattr(_sf_module, "_fetch_dicts", _failing_first_call)
         async with SnowflakeConnector(_connect_kwargs()) as c:
-            original = c._fetch_dicts
-            call_count = 0
-
-            def _failing_first_call(query, params):
-                nonlocal call_count
-                call_count += 1
-                if call_count == 1:
-                    raise snowflake.connector.errors.ProgrammingError(
-                        msg="Object 'TEST_DB.INFORMATION_SCHEMA.KEY_COLUMN_USAGE' "
-                        "does not exist or not authorized."
-                    )
-                return original(query, params)
-
-            monkeypatch.setattr(c, "_fetch_dicts", _failing_first_call)
             tables = await c.discover_tables()
 
         names = {(t.schema, t.name) for t in tables}
@@ -477,16 +479,18 @@ class TestSharedDatabaseFallback:
     ) -> None:
         import snowflake.connector.errors
 
+        import sonar.connectors.snowflake as _sf_module
+
+        monkeypatch.setattr(
+            _sf_module,
+            "_fetch_dicts",
+            lambda conn, q, p: (_ for _ in ()).throw(
+                snowflake.connector.errors.ProgrammingError(
+                    msg="Object does not exist or not authorized."
+                )
+            ),
+        )
         async with SnowflakeConnector(_connect_kwargs()) as c:
-            monkeypatch.setattr(
-                c,
-                "_fetch_dicts",
-                lambda q, p: (_ for _ in ()).throw(
-                    snowflake.connector.errors.ProgrammingError(
-                        msg="Object does not exist or not authorized."
-                    )
-                ),
-            )
             fks = await c.discover_relationships()
 
         assert fks == []

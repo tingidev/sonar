@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 
-import pytest
-
 from sonar.connectors.types import Column, Table
 from sonar.engine.describe import (
     ColumnDescription,
@@ -82,7 +80,6 @@ def _bundle(
 
 
 class TestEvaluateDescriptions:
-    @pytest.mark.asyncio
     async def test_high_scores_aggregate(self) -> None:
         bundle = _bundle(
             [_table("a"), _table("b")],
@@ -99,7 +96,6 @@ class TestEvaluateDescriptions:
         assert report.mean_completeness == 0.85
         assert report.flagged == ()
 
-    @pytest.mark.asyncio
     async def test_low_scores_flagged(self) -> None:
         bundle = _bundle([_table("a")], {("public", "a"): _description("a")})
         client = FakeJudgeClient(
@@ -111,7 +107,6 @@ class TestEvaluateDescriptions:
         assert len(report.flagged) == 1
         assert report.flagged[0].accuracy == 0.3
 
-    @pytest.mark.asyncio
     async def test_null_descriptions_skipped(self) -> None:
         bundle = _bundle(
             [_table("a"), _table("b")],
@@ -126,7 +121,6 @@ class TestEvaluateDescriptions:
         assert report.scored_count == 1
         assert report.skipped_null == 1
 
-    @pytest.mark.asyncio
     async def test_judge_parse_failure_handled(self) -> None:
         bundle = _bundle(
             [_table("a"), _table("b")],
@@ -143,7 +137,6 @@ class TestEvaluateDescriptions:
         assert report.scored_count == 1
         assert report.judge_failures == 1
 
-    @pytest.mark.asyncio
     async def test_judge_provider_error_handled(self) -> None:
         bundle = _bundle([_table("a")], {("public", "a"): _description("a")})
         client = FakeJudgeClient(lambda prompt, system: RuntimeError("api down"))
@@ -152,7 +145,6 @@ class TestEvaluateDescriptions:
         assert report.judge_failures == 1
         assert report.mean_accuracy == 0.0
 
-    @pytest.mark.asyncio
     async def test_scores_clamped_to_unit_interval(self) -> None:
         bundle = _bundle([_table("a")], {("public", "a"): _description("a")})
         client = FakeJudgeClient(

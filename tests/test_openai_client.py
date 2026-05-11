@@ -26,7 +26,6 @@ class TestOpenAIClient:
     def _set_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
-    @pytest.mark.asyncio
     async def test_generate_calls_chat_completions_create(self) -> None:
         fake_response = _fake_openai_response("hello world")
         with patch("sonar.engine._openai.openai.AsyncOpenAI") as mock_cls:
@@ -46,7 +45,6 @@ class TestOpenAIClient:
                 ],
             )
 
-    @pytest.mark.asyncio
     async def test_generate_without_system_omits_system_message(self) -> None:
         fake_response = _fake_openai_response("no system")
         with patch("sonar.engine._openai.openai.AsyncOpenAI") as mock_cls:
@@ -59,7 +57,6 @@ class TestOpenAIClient:
             kwargs = mock_create.await_args.kwargs
             assert kwargs["messages"] == [{"role": "user", "content": "hi"}]
 
-    @pytest.mark.asyncio
     async def test_base_url_override_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SONAR_LLM_BASE_URL", "http://localhost:11434/v1")
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -80,7 +77,6 @@ class TestOpenAIClient:
         with pytest.raises(EnvironmentError, match="OPENAI_API_KEY must be set"):
             OpenAIClient(model="gpt-4o", max_tokens=4096)
 
-    @pytest.mark.asyncio
     async def test_no_key_local_endpoint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SONAR_LLM_BASE_URL", "http://localhost:11434/v1")
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -92,7 +88,6 @@ class TestOpenAIClient:
             result = await client.generate("hello")
             assert result == "local response"
 
-    @pytest.mark.asyncio
     async def test_logs_info_record_on_success(self, caplog: pytest.LogCaptureFixture) -> None:
         prompt = "describe the orders table"
         system = "you are a data analyst"
@@ -121,7 +116,6 @@ class TestOpenAIClient:
         assert system not in rendered
         assert response_text not in rendered
 
-    @pytest.mark.asyncio
     async def test_no_log_on_provider_exception(self, caplog: pytest.LogCaptureFixture) -> None:
         with patch("sonar.engine._openai.openai.AsyncOpenAI") as mock_cls:
             mock_cls.return_value.chat.completions.create = AsyncMock(
@@ -139,7 +133,6 @@ class TestOpenAIClient:
 
         assert [r for r in caplog.records if r.name == "sonar.engine.llm"] == []
 
-    @pytest.mark.asyncio
     async def test_generate_strips_code_fences(self) -> None:
         fenced = '```json\n{"key": "value"}\n```'
         fake_response = _fake_openai_response(fenced)

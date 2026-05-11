@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from sonar.engine._anthropic import AnthropicClient
-from sonar.engine.llm import LLMClient, LLMConfig, _strip_code_fences, create_llm_client
+from sonar.engine.llm import LLMClient, LLMConfig, create_llm_client, strip_code_fences
 
 
 class TestLLMConfig:
@@ -44,7 +44,6 @@ def _fake_anthropic_response(
 
 
 class TestAnthropicClient:
-    @pytest.mark.asyncio
     async def test_generate_calls_messages_create_with_expected_args(self) -> None:
         fake_response = _fake_anthropic_response("hello world")
         with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic") as mock_cls:
@@ -63,7 +62,6 @@ class TestAnthropicClient:
                 messages=[{"role": "user", "content": "hi"}],
             )
 
-    @pytest.mark.asyncio
     async def test_generate_without_system_omits_system_arg(self) -> None:
         fake_response = _fake_anthropic_response("no system")
         with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic") as mock_cls:
@@ -77,7 +75,6 @@ class TestAnthropicClient:
             assert "system" not in kwargs
             assert kwargs["messages"] == [{"role": "user", "content": "hi"}]
 
-    @pytest.mark.asyncio
     async def test_generate_returns_content_0_text(self) -> None:
         fake_response = _fake_anthropic_response("extracted text")
         with patch("sonar.engine._anthropic.anthropic.AsyncAnthropic") as mock_cls:
@@ -85,7 +82,6 @@ class TestAnthropicClient:
             client = AnthropicClient(model="claude-haiku-4-5-20251001", max_tokens=4096)
             assert await client.generate("x") == "extracted text"
 
-    @pytest.mark.asyncio
     async def test_logs_info_record_without_payload(self, caplog: pytest.LogCaptureFixture) -> None:
         prompt = "please describe the orders table"
         system = "you are a data analyst"
@@ -119,7 +115,6 @@ class TestAnthropicClient:
                 assert system not in value
                 assert response_text not in value
 
-    @pytest.mark.asyncio
     async def test_no_log_on_provider_exception(self, caplog: pytest.LogCaptureFixture) -> None:
         request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
         api_error = anthropic.APIError(message="boom", request=request, body=None)
@@ -133,7 +128,6 @@ class TestAnthropicClient:
 
         assert [r for r in caplog.records if r.name == "sonar.engine.llm"] == []
 
-    @pytest.mark.asyncio
     async def test_generate_strips_code_fences(self) -> None:
         fenced = '```json\n{"key": "value"}\n```'
         fake_response = _fake_anthropic_response(fenced)
@@ -185,17 +179,17 @@ class TestCreateLLMClient:
 
 class TestStripCodeFences:
     def test_strips_json_fence(self) -> None:
-        assert _strip_code_fences('```json\n{"a": 1}\n```') == '{"a": 1}'
+        assert strip_code_fences('```json\n{"a": 1}\n```') == '{"a": 1}'
 
     def test_strips_bare_fence(self) -> None:
-        assert _strip_code_fences('```\n{"a": 1}\n```') == '{"a": 1}'
+        assert strip_code_fences('```\n{"a": 1}\n```') == '{"a": 1}'
 
     def test_leaves_plain_json_alone(self) -> None:
-        assert _strip_code_fences('{"a": 1}') == '{"a": 1}'
+        assert strip_code_fences('{"a": 1}') == '{"a": 1}'
 
     def test_strips_with_surrounding_whitespace(self) -> None:
-        assert _strip_code_fences('  ```json\n{"a": 1}\n```  ') == '{"a": 1}'
+        assert strip_code_fences('  ```json\n{"a": 1}\n```  ') == '{"a": 1}'
 
     def test_preserves_inner_newlines(self) -> None:
         inner = '{\n  "a": 1,\n  "b": 2\n}'
-        assert _strip_code_fences(f"```json\n{inner}\n```") == inner
+        assert strip_code_fences(f"```json\n{inner}\n```") == inner

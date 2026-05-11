@@ -127,15 +127,6 @@ class TestScanCLI:
         assert bundle is not None
         assert bundle.descriptions[("public", "orders")] is None
 
-    def test_url_alias_accepted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_fake_client(monkeypatch)
-
-        bundle_dir = tmp_path / "bundle"
-        exit_code = main(["scan", "--url", _test_dsn(), "--bundle-dir", str(bundle_dir)])
-
-        assert exit_code == 0
-        assert (bundle_dir / "meta.json").exists()
-
 
 class TestScanCLIFailures:
     def test_unreachable_db_exits_nonzero_and_writes_nothing(

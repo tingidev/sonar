@@ -144,6 +144,30 @@ class TestConnectionLifecycle:
             await connector.sample_table("public", "users")
 
 
+class TestSampleTableLimitValidation:
+    async def test_negative_limit_raises(self, monkeypatch):
+        connector = PostgresConnector("postgresql://unused")
+        monkeypatch.setattr(connector, "_conn", object())
+        with pytest.raises(ValueError, match="non-negative int"):
+            await connector.sample_table("public", "users", limit=-1)
+
+    async def test_float_limit_raises(self, monkeypatch):
+        connector = PostgresConnector("postgresql://unused")
+        monkeypatch.setattr(connector, "_conn", object())
+        with pytest.raises(ValueError, match="non-negative int"):
+            await connector.sample_table("public", "users", limit=5.0)
+
+    async def test_zero_limit_does_not_raise_on_validation(self, monkeypatch):
+        connector = PostgresConnector("postgresql://unused")
+        # Patch _conn to a sentinel so the connection guard passes, then let
+        # the query path fail naturally — we only care that limit=0 passes
+        # validation (ValueError is not raised before the DB call).
+        monkeypatch.setattr(connector, "_conn", object())
+        with pytest.raises(Exception) as exc_info:
+            await connector.sample_table("public", "users", limit=0)
+        assert "non-negative int" not in str(exc_info.value)
+
+
 @pytest.mark.integration
 class TestSchemaIntrospection:
     async def test_discover_tables_returns_all_user_tables(self, connector):

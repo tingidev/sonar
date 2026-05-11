@@ -11,9 +11,9 @@ from sonar.connectors.duckdb import (
     DuckDBConnector,
     _foreign_keys_from_rows,
     _quote_identifier,
+    _row_count_from_row,
     _tables_from_rows,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -25,9 +25,7 @@ def db_file(tmp_path: pytest.TempPathFactory) -> str:
     """Temp DuckDB file with `users` and `orders` tables and a FK."""
     path = str(tmp_path / "test.duckdb")
     conn = duckdb.connect(path)
-    conn.execute(
-        "CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR, created_at TIMESTAMP)"
-    )
+    conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR, created_at TIMESTAMP)")
     conn.execute(
         "CREATE TABLE orders ("
         "id INTEGER PRIMARY KEY, "
@@ -168,9 +166,7 @@ class TestSchemaEnumeration:
         conn.close()
         return path
 
-    async def test_both_schemas_discovered_without_filter(
-        self, multi_schema_db: str
-    ) -> None:
+    async def test_both_schemas_discovered_without_filter(self, multi_schema_db: str) -> None:
         async with DuckDBConnector(multi_schema_db) as c:
             tables = await c.discover_tables()
         schemas_found = {t.schema for t in tables}
@@ -296,6 +292,20 @@ class TestTablesFromRows:
         ]
         with pytest.raises(ValueError, match=r"identifier contains '\.'"):
             _tables_from_rows(rows)
+
+
+class TestRowCountFromRow:
+    def test_positive_passes_through(self) -> None:
+        assert _row_count_from_row({"row_count": 42}) == 42
+
+    def test_zero_passes_through(self) -> None:
+        assert _row_count_from_row({"row_count": 0}) == 0
+
+    def test_none_becomes_none(self) -> None:
+        assert _row_count_from_row({"row_count": None}) is None
+
+    def test_returns_int(self) -> None:
+        assert isinstance(_row_count_from_row({"row_count": 7}), int)
 
 
 class TestForeignKeysFromRows:

@@ -199,7 +199,6 @@ class TestDataclasses:
 
 
 class TestDescribeTable:
-    @pytest.mark.asyncio
     async def test_successful_parse(self) -> None:
         table = _users_table()
         client = FakeLLMClient(responses=[_valid_payload_for(table)])
@@ -213,7 +212,6 @@ class TestDescribeTable:
         assert tuple(c.name for c in result.columns) == tuple(c.name for c in table.columns)
         assert 0.0 <= result.confidence <= 1.0
 
-    @pytest.mark.asyncio
     async def test_prompt_composition(self) -> None:
         table = _users_table()
         client = FakeLLMClient(responses=[_valid_payload_for(table)])
@@ -232,7 +230,6 @@ class TestDescribeTable:
         for value in ("none", "low", "medium", "high"):
             assert value in prompt
 
-    @pytest.mark.asyncio
     async def test_pii_classification_respected(self) -> None:
         table = Table(
             schema="public",
@@ -254,7 +251,6 @@ class TestDescribeTable:
         assert by_name["ssn"].pii_risk is PIIRisk.HIGH
         assert by_name["country"].pii_risk is PIIRisk.LOW
 
-    @pytest.mark.asyncio
     async def test_pii_classification_medium(self) -> None:
         table = Table(
             schema="public",
@@ -281,7 +277,6 @@ class TestDescribeTable:
 
 
 class TestParseRetry:
-    @pytest.mark.asyncio
     async def test_retry_recovers(self) -> None:
         table = _users_table()
         client = FakeLLMClient(responses=["not json {", _valid_payload_for(table)])
@@ -294,7 +289,6 @@ class TestParseRetry:
         second_prompt, _ = client.calls[1]
         assert "not valid JSON" in second_prompt
 
-    @pytest.mark.asyncio
     async def test_permanent_failure_raises(self) -> None:
         table = _users_table()
         bad_1 = "not json {"
@@ -309,7 +303,6 @@ class TestParseRetry:
         assert hasattr(excinfo.value, "raw_text")
         assert len(excinfo.value.raw_text) <= 500
 
-    @pytest.mark.asyncio
     async def test_column_count_mismatch_raises(self) -> None:
         table = _users_table()
         bad = json.dumps(
@@ -335,7 +328,6 @@ class TestParseRetry:
         with pytest.raises(DescriptionParseError):
             await engine.describe_table(table, _users_samples())
 
-    @pytest.mark.asyncio
     async def test_column_name_mismatch_raises(self) -> None:
         table = _users_table()
         swapped = json.dumps(
@@ -375,7 +367,6 @@ class TestParseRetry:
         with pytest.raises(DescriptionParseError):
             await engine.describe_table(table, _users_samples())
 
-    @pytest.mark.asyncio
     async def test_valid_first_call_no_retry(self) -> None:
         table = _users_table()
         client = FakeLLMClient(responses=[_valid_payload_for(table)])
@@ -400,7 +391,6 @@ def _tiny_table(i: int) -> Table:
 
 
 class TestDescribeDatabase:
-    @pytest.mark.asyncio
     async def test_concurrency_bound(self) -> None:
         tables = [_tiny_table(i) for i in range(10)]
         samples = {(t.schema, t.name): [] for t in tables}
@@ -414,7 +404,6 @@ class TestDescribeDatabase:
         assert client.peak_concurrent <= 3
         assert client.peak_concurrent >= 1
 
-    @pytest.mark.asyncio
     async def test_partial_failure_does_not_cancel(self) -> None:
         tables = [_tiny_table(i) for i in range(5)]
         samples = {(t.schema, t.name): [] for t in tables}
@@ -438,7 +427,6 @@ class TestDescribeDatabase:
         assert len(others) == 4
         assert all(isinstance(v, TableDescription) for v in others)
 
-    @pytest.mark.asyncio
     async def test_empty_input_short_circuits(self) -> None:
         client = FakeLLMClient(responses=[])
         engine = DescriptionEngine(client)
@@ -448,7 +436,6 @@ class TestDescribeDatabase:
         assert result == {}
         assert client.calls == []
 
-    @pytest.mark.asyncio
     async def test_provider_error_retried_with_backoff(self) -> None:
         table = _tiny_table(0)
         valid = _valid_payload_for(table)
@@ -465,7 +452,6 @@ class TestDescribeDatabase:
         assert isinstance(result[("public", "t0")], TableDescription)
         assert len(client.calls) == 2
 
-    @pytest.mark.asyncio
     async def test_provider_error_exhausts_retries(self) -> None:
         table = _tiny_table(0)
         client = FakeLLMClient(
@@ -482,7 +468,6 @@ class TestDescribeDatabase:
         assert result[("public", "t0")] is None
         assert len(client.calls) == 3
 
-    @pytest.mark.asyncio
     async def test_parse_error_not_retried_at_database_level(self) -> None:
         table = _tiny_table(0)
         client = FakeLLMClient(responses=["not json", "still not json"])
@@ -500,7 +485,6 @@ class TestDescribeDatabase:
 
 
 class TestLogging:
-    @pytest.mark.asyncio
     async def test_ok_outcome(self, caplog: pytest.LogCaptureFixture) -> None:
         table = _users_table()
         client = FakeLLMClient(responses=[_valid_payload_for(table)])
@@ -518,7 +502,6 @@ class TestLogging:
         assert rec.columns_count == 3
         assert rec.outcome == "ok"
 
-    @pytest.mark.asyncio
     async def test_parse_retry_outcome(self, caplog: pytest.LogCaptureFixture) -> None:
         table = _users_table()
         client = FakeLLMClient(responses=["not json", _valid_payload_for(table)])
@@ -532,7 +515,6 @@ class TestLogging:
         assert len(records) == 1
         assert records[0].outcome == "parse_retry"
 
-    @pytest.mark.asyncio
     async def test_provider_error_outcome(self, caplog: pytest.LogCaptureFixture) -> None:
         table = _users_table()
         client = FakeLLMClient(responses=[RuntimeError("API key invalid")])
@@ -547,7 +529,6 @@ class TestLogging:
         assert len(records) == 1
         assert records[0].outcome == "provider_error"
 
-    @pytest.mark.asyncio
     async def test_provider_error_on_retry_call(self, caplog: pytest.LogCaptureFixture) -> None:
         table = _users_table()
         client = FakeLLMClient(responses=["not json", RuntimeError("rate limited")])
@@ -562,7 +543,6 @@ class TestLogging:
         assert len(records) == 1
         assert records[0].outcome == "provider_error"
 
-    @pytest.mark.asyncio
     async def test_failed_outcome(self, caplog: pytest.LogCaptureFixture) -> None:
         table = _users_table()
         sample_secret = "super-secret-sample"

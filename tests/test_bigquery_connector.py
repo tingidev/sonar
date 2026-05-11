@@ -16,16 +16,20 @@ import logging
 import os
 
 import pytest
-from google.cloud import bigquery
 
-from sonar.cli import (
+pytest.importorskip("google.cloud.bigquery")
+
+from google.cloud import bigquery  # noqa: E402
+
+from sonar.cli import (  # noqa: E402
     _bigquery_from_env,
     _bigquery_from_url,
     _bigquery_label,
     _DispatchError,
     _select_connector,
 )
-from sonar.connectors.bigquery import (
+from sonar.connectors._bigquery_sql import _backtick  # noqa: E402
+from sonar.connectors.bigquery import (  # noqa: E402
     BigQueryConnector,
     _bq_quote,
     _column_from_schema_field,
@@ -280,6 +284,26 @@ class TestBqQuote:
     def test_rejects_null_byte(self) -> None:
         with pytest.raises(ValueError, match="null byte"):
             _bq_quote("a\x00b")
+
+
+# ---------------------------------------------------------------------------
+# 6.3a — _backtick (mirrors _bq_quote; must stay in sync)
+# ---------------------------------------------------------------------------
+
+
+class TestBacktick:
+    def test_normal_identifier(self) -> None:
+        assert _backtick("users") == "`users`"
+
+    def test_identifier_with_backtick(self) -> None:
+        assert _backtick("we`ird") == "`we\\`ird`"
+
+    def test_rejects_null_byte(self) -> None:
+        with pytest.raises(ValueError, match="null byte"):
+            _backtick("a\x00b")
+
+    def test_empty_string(self) -> None:
+        assert _backtick("") == "``"
 
 
 # ---------------------------------------------------------------------------

@@ -72,7 +72,6 @@ def _users_bundle() -> ContextBundle:
 
 @pytest.mark.integration
 class TestSampleIntegration:
-    @pytest.mark.asyncio
     async def test_sample_happy_path_with_pii_stripping(self) -> None:
         bundle = _users_bundle()
         sample = make_sample_tool(bundle, dsn=_test_dsn())
@@ -90,7 +89,6 @@ class TestSampleIntegration:
             # created_at is not PII -> passes through
             assert row["created_at"] is not None
 
-    @pytest.mark.asyncio
     async def test_sample_allow_pii_returns_raw(self) -> None:
         bundle = _users_bundle()
         sample = make_sample_tool(bundle, dsn=_test_dsn(), allow_pii=True)
