@@ -41,11 +41,46 @@ Multi-provider LLM support, two additional connectors.
 
 ## Phase 4 — Quality, drift, and developer experience
 
-Make Sonar genuinely excellent before launch. Three workstreams:
+Ship-ready Sonar. Three workstreams executed in order: foundation, differentiator, stickiness. Exit criterion: all three workstreams archived against their own scope.
 
-14. `description-quality-push` — Stress-test descriptions across diverse real-world schemas (messy naming, no FKs, wide tables, empty tables). Improve prompts, sampling strategy (information-maximizing samples over random), edge case handling. Use the eval toolkit to measure and iterate. This is the core differentiator.
-15. `schema-drift` — `sonar rescan` / `sonar diff` to detect schema changes and update descriptions incrementally. Makes Sonar a tool you keep running, not a one-shot. Versioned bundles with change tracking.
-16. `first-run-experience` — Rich progress reporting (per-table status, timing, ETA), polished output formatting, graceful degradation with actionable error messages. The scan is the first thing every user sees.
+14. ~~`first-run-experience`~~ — done, archived 2026-05-11. Polished scan output. New `scan-output` capability owns rendering; `description-engine` gained an optional `on_progress` callback so the engine stays output-agnostic. Streaming per-table lines (`[i/N] schema.table ... ok (2.1s)`), inline failure reasons, final summary with success/failure counts and retry guidance, integrated cross-DB/cross-dataset FK warnings.
+
+15. `description-quality-push` — Stress-test descriptions against six public databases of varying messiness, improve prompts and sampling strategy, measure via the eval toolkit. Core differentiator.
+
+    **Stress-test database suite** (fixtures under `tests/fixtures/`):
+    - **ChEMBL** (Postgres, port 5434) — clean baseline. 73 tables, declared FKs. Regression target.
+    - **FAERS** (Postgres, port 5435) — FDA adverse events. 7 tables, max abbreviation mess (`ae_pt`, `role_cod`, `i_f_cod`), no FKs, medical jargon.
+    - **TPC-DS** (Postgres, port 5436) — synthetic retail. 24 tables, systematic 2-letter prefixes (`ss_sold_date_sk`), wide fact tables.
+    - **AdventureWorks** (Postgres, port 5437) — enterprise multi-schema. 68 tables across 5 schemas, audit/junk mixed with real.
+    - **Lahman** (Postgres, port 5438) — baseball stats. 27 tables, mixed naming (`playerID` next to `GIDP`, `BFP`).
+    - **CMS SynPUF** (DuckDB) — Medicare claims. 5 tables, all-caps abbreviated columns (`BENE_ESRD_IND`, `AT_PHYSN_NPI`).
+
+    **Eval framework** (extends `sonar eval` description-scoring mode):
+    - **Cross-provider judging.** Generator is the model under test (Haiku, local Qwen, etc.); judge is from a different provider (GPT-4o) to eliminate same-family bias. New `--judge-model` flag routes through the existing `create_llm_client()` factory.
+    - **Dimensions, each 1-5 with reasoning:** accuracy (correct reflection of content), specificity (useful detail, not generic filler), domain inference (correct domain identification and terminology).
+    - **Iteration metric: relative.** Per-table score deltas vs previous run. Improvement = positive delta on the fixed sample.
+    - **Exit metric: absolute.** Per-database thresholds, set as baseline data comes in. All six databases must clear their threshold before this workstream archives.
+    - **Sample strategy:** fixed 10 tables per database for iteration loops (comparable across runs); periodic full-database eval to guard against overfitting.
+    - **Artifacts.** Each run writes a versioned JSON: scores, judge reasoning, prompt version, generator + judge model versions, sample tables. Committed to repo for reproducibility.
+    - **Future extension (deferred):** LLM-as-jury — both Sonnet and GPT-4o judge; disagreements flag genuinely ambiguous descriptions for human spot-check. Doubles cost; start with single judge.
+
+16. `schema-drift` — Keep descriptions in sync as schemas evolve. Makes Sonar a tool you keep running, not a one-shot.
+
+    **Three commands:**
+    - `sonar scan` — unchanged. Full scan, re-describes everything. First-run case.
+    - `sonar rescan` — smart re-scan. Re-describes only tables whose column structure changed OR whose stored description was generated with a different model/prompt version. `--force` overrides to full re-describe.
+    - `sonar diff` — comparison output, no writes. Two modes:
+        - **Bundle vs live DB:** "What would change if I rescanned?" Common case.
+        - **Bundle vs bundle:** Compare two stored snapshots.
+        - Output: markdown by default (terminal/PR-friendly), `--format=json` for piping.
+
+    **Schema diff scope:** tables added/removed, columns added/removed/renamed/typed. Row-count delta surfaces as a warning section, not a structural change. Sample data drift is not detected.
+
+    **Re-describe triggers (smart rescan):** column structure change, OR stored description's model/prompt version mismatches current config. Bundle records `model` and `prompt_version` per description for this check.
+
+    **Bundle history is user-managed.** Sonar produces comparable bundles; storing them is the user's job (git, backup folder, CI artifact). No internal version directory or symlinks.
+
+    **Out of scope:** semantic-staleness detection without schema changes (e.g., a `status` enum growing from 3 to 12 values whose description still says "3 statuses"). Phase 5+ if real usage surfaces it.
 
 ### Deferred (Phase 4+)
 

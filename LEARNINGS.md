@@ -819,3 +819,54 @@ A two-SDK LLM dispatcher that replaces the Anthropic-only implementation. Users 
 - Fail-fast `EnvironmentError` when targeting remote OpenAI without API key.
 
 ---
+
+## Scan Output
+
+### What we're building
+
+The first-run UX for `sonar scan`. Before this change the command was near-silent: a discovery line, minutes of nothing, a one-line summary. Now the description engine emits structured progress events and the CLI renders them as a streaming, append-only feed plus a richer final summary that names failed tables with their reasons. Two-layer split: a new `scan-output` capability owns rendering; `description-engine` gains an optional `on_progress` callback so it can stay output-agnostic.
+
+### Architecture
+
+- **Inputs to the engine layer:** an optional `on_progress: Callable[[DescribeProgress], None]` parameter on `describe_database`.
+- **Inputs to the renderer:** a `DescribeProgress` event (per table) and, at the end, a `_ScanResult` carrying bundle + failures + elapsed wall-clock.
+- **Shape decisions:**
+  1. **Engine emits events, renderer is a pure function of events.** The engine never knows about stdout, terminal width, colour, or formatting. A future consumer (web dashboard, JSON stream) wires a different callback.
+  2. **Append-only output, no cursor tricks.** Each `started` and completion event prints a fresh line. Multiple concurrent tables show as interleaved `[i/N] schema.table ...` lines. Pipes, `tee`, and CI logs stay readable; no `\r` or ANSI cursor movement.
+  3. **Failures captured by the CLI's own callback, not pulled from the result dict.** The renderer sees them as they happen; the summary lists them with the reason that was emitted, not a post-hoc string built from a `None` value.
+
+### Key decisions
+
+- **Callback, not async iterator.** Sync `Callable[[DescribeProgress], None]` over an async iterator (D1). The consumer is `print()` — synchronous and trivial. An async iterator buys cancellation and backpressure semantics no consumer needs; the callback is invoked from inside the async task and that's fine. Widening to async later is a non-breaking change (wrap the sync callers).
+- **Rendering lives in `scan_output.py`, not `cli.py` (D2).** `cli.py` was already 730+ lines of orchestration. Formatting logic is independently testable as pure-function-of-event; the CLI shrinks to wiring.
+- **Monotonic clock for elapsed_ms (D3).** `time.monotonic()` everywhere — per-table timing and scan wall-clock. NTP adjustments and DST shifts cannot make a timing negative or wildly wrong.
+- **No sampling-phase progress (D4).** Sampling is bounded by `_DB_SAMPLE_CONCURRENCY=5` and finishes in seconds; description takes minutes. Per-table sampling lines would be noise. Same callback pattern is available if sampling becomes slow on real customer data.
+- **`DescribeProgress` is a frozen dataclass (D5).** Matches the project's immutability convention; provides type safety at the consumer boundary and prevents accidental mutation by a misbehaving callback.
+
+### Implementation details
+
+- **`_describe_table_with_outcome` private wrapper.** The public `describe_table(...) -> TableDescription` signature stayed the same for backward compatibility. To thread the `ok` vs `parse_retry` distinction out of the inner method into the progress emitter, the body moved into `_describe_table_with_outcome(...) -> tuple[TableDescription, str]`, and `describe_table` became a one-line shim that drops the outcome. The retry loop in `_bounded` consumes the outcome and emits the right completion event.
+- **`_emit` helper swallows callback exceptions.** A buggy or hostile `on_progress` callback raising mid-scan would otherwise crash the worker coroutine, propagate through `asyncio.gather`, and lose every table's description. `_emit` wraps each call in `try/except` and logs with `_LOGGER.exception` — the scan continues. Tested directly with a deliberately-raising callback.
+- **Completion event fires once per terminal outcome, never per provider retry.** `_bounded` retries on provider errors but only emits `started` (at entry) and one of `ok` / `parse_retry` / `failed` / `provider_error` (at terminal). The existing per-attempt INFO logs on `sonar.engine.describe` are unchanged — internal observability and user-facing progress are two different audiences.
+- **Failures captured into `_ScanResult` at the CLI seam.** The pipeline's local `_on_progress` closure prints via `print_table_progress` *and* appends a `FailedTable` record to a list closed over by the pipeline. The summary takes that list as `failures: tuple[FailedTable, ...]`. The renderer is therefore stateless across calls; the pipeline owns the accumulation.
+- **Cross-DB and cross-dataset FK counters threaded explicitly through the summary, not pulled via `getattr`.** Old code did `getattr(spec.connector, "cross_database_foreign_keys_dropped", 0)` inside the renderer. New renderer takes integers as keyword arguments; the `_run_scan` call site does the `getattr` once. Renderer has no connector knowledge.
+
+### What goes wrong
+
+- **`error_reason` carries `str(exc)` directly.** Per-table exception messages reach stdout. For provider errors that's a rate-limit string; for parse errors it can include an LLM-generated column name (the `payload_name` from `_parse_table_description`'s column-mismatch ValueError). Audited and deliberately dismissed for the current local-CLI surface: the leaked content is a schema identifier the user already knows, and there is no daemon or API surface to expose it across a trust boundary. Revisit if `print_table_progress` is ever wrapped by a non-local renderer (web stream, MCP tool output) — that's where the invariant "no LLM content on stdout" needs to be re-established.
+- **Concurrent started lines interleave.** With `max_concurrent_calls=5`, five `[i/N] schema.table ...` lines can appear before any completion. This is spec-mandated ("multiple started lines SHALL be visible simultaneously") and the right shape for append-only output, but a user piping the output through a line-buffered filter must accept the interleaving. No way to "group" without an in-place renderer, which the spec explicitly rejects.
+- **Wall-clock elapsed_ms is engine-entry to engine-exit, not LLM-call time.** Includes time spent waiting on the semaphore. For a tight semaphore + slow LLM this matters: a table that waited 5s for the semaphore and took 3s for the LLM reports `elapsed_ms=8000`. The summary reflects user-visible time; it does not reflect pure provider latency. If provider-latency telemetry becomes a need, it's a new metric, not a redefinition of this one.
+
+### Decisions made
+
+- Engine emits `DescribeProgress` events via a sync callback; renderer is a pure function of events.
+- Rendering extracted to `src/sonar/scan_output.py` (append-only, no cursor manipulation).
+- `time.monotonic()` for all per-table and scan-wide timing.
+- No sampling-phase progress.
+- `DescribeProgress` as a frozen dataclass with the spec's seven fields.
+- One terminal completion event per table; retries do not emit per attempt.
+- Callback exceptions caught and logged; the scan continues regardless.
+- Failures captured into `_ScanResult` at the CLI seam; the renderer takes them as data, not by inspecting the bundle.
+- Cross-DB / cross-dataset FK counters passed explicitly into `print_scan_summary`; renderer holds no connector references.
+
+---
