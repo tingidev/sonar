@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Callable
 
 from sonar.connectors.types import Column, Table
 from sonar.engine._prompts import SYSTEM_PROMPT, build_table_prompt
@@ -44,6 +46,20 @@ class ColumnDescription:
     semantic_type: SemanticType
     pii_risk: PIIRisk
     confidence: float
+
+
+@dataclass(frozen=True)
+class DescribeProgress:
+    index: int
+    total: int
+    schema: str
+    table: str
+    event: str
+    elapsed_ms: int | None = None
+    error_reason: str | None = None
+
+
+ProgressCallback = Callable[[DescribeProgress], None]
 
 
 @dataclass(frozen=True)
@@ -120,6 +136,12 @@ class DescriptionEngine:
         self._config = config or LLMConfig()
 
     async def describe_table(self, table: Table, samples: list[dict]) -> TableDescription:
+        description, _outcome = await self._describe_table_with_outcome(table, samples)
+        return description
+
+    async def _describe_table_with_outcome(
+        self, table: Table, samples: list[dict]
+    ) -> tuple[TableDescription, str]:
         prompt = build_table_prompt(table, samples)
         try:
             raw = await self._llm.generate(prompt, system=SYSTEM_PROMPT)
@@ -129,7 +151,7 @@ class DescriptionEngine:
         try:
             description = _parse_table_description(raw, table.schema, table.name, table.columns)
             self._log(table, outcome="ok")
-            return description
+            return description, "ok"
         except DescriptionParseError:
             pass
 
@@ -144,7 +166,7 @@ class DescriptionEngine:
                 raw_retry, table.schema, table.name, table.columns
             )
             self._log(table, outcome="parse_retry")
-            return description
+            return description, "parse_retry"
         except DescriptionParseError:
             self._log(table, outcome="failed")
             raise
@@ -153,28 +175,88 @@ class DescriptionEngine:
         self,
         tables: list[Table],
         samples_per_table: dict[tuple[str, str], list[dict]],
+        on_progress: ProgressCallback | None = None,
     ) -> dict[tuple[str, str], TableDescription | None]:
         if not tables:
             return {}
 
         semaphore = asyncio.Semaphore(self._config.max_concurrent_calls)
+        total = len(tables)
 
-        async def _bounded(table: Table) -> TableDescription:
+        def _emit(event: DescribeProgress) -> None:
+            if on_progress is None:
+                return
+            try:
+                on_progress(event)
+            except Exception:  # noqa: BLE001 - callback errors must not break the scan
+                _LOGGER.exception("on_progress callback raised; continuing scan")
+
+        async def _bounded(index: int, table: Table) -> TableDescription:
             samples = samples_per_table.get((table.schema, table.name), [])
+            _emit(
+                DescribeProgress(
+                    index=index,
+                    total=total,
+                    schema=table.schema,
+                    table=table.name,
+                    event="started",
+                )
+            )
+            start = time.monotonic()
             last_exc: BaseException | None = None
             for attempt in range(_MAX_PROVIDER_RETRIES):
                 async with semaphore:
                     try:
-                        return await self.describe_table(table, samples)
-                    except DescriptionParseError:
+                        description, outcome = await self._describe_table_with_outcome(
+                            table, samples
+                        )
+                        elapsed_ms = int((time.monotonic() - start) * 1000)
+                        _emit(
+                            DescribeProgress(
+                                index=index,
+                                total=total,
+                                schema=table.schema,
+                                table=table.name,
+                                event=outcome,
+                                elapsed_ms=elapsed_ms,
+                            )
+                        )
+                        return description
+                    except DescriptionParseError as exc:
+                        elapsed_ms = int((time.monotonic() - start) * 1000)
+                        _emit(
+                            DescribeProgress(
+                                index=index,
+                                total=total,
+                                schema=table.schema,
+                                table=table.name,
+                                event="failed",
+                                elapsed_ms=elapsed_ms,
+                                error_reason=str(exc),
+                            )
+                        )
                         raise
                     except Exception as exc:
                         last_exc = exc
                 if attempt < _MAX_PROVIDER_RETRIES - 1:
                     await asyncio.sleep(2**attempt)
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            _emit(
+                DescribeProgress(
+                    index=index,
+                    total=total,
+                    schema=table.schema,
+                    table=table.name,
+                    event="provider_error",
+                    elapsed_ms=elapsed_ms,
+                    error_reason=str(last_exc) if last_exc else "unknown provider error",
+                )
+            )
             raise last_exc  # type: ignore[misc]
 
-        results = await asyncio.gather(*(_bounded(t) for t in tables), return_exceptions=True)
+        results = await asyncio.gather(
+            *(_bounded(i, t) for i, t in enumerate(tables)), return_exceptions=True
+        )
 
         out: dict[tuple[str, str], TableDescription | None] = {}
         for table, result in zip(tables, results, strict=True):

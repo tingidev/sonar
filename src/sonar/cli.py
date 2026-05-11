@@ -9,6 +9,7 @@ import importlib.util
 import logging
 import os
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from sonar._dsn import scrub_dsn
 from sonar.connectors.postgres import PostgresConnector
 from sonar.connectors.types import ForeignKey, Table
-from sonar.engine.describe import DescriptionEngine
+from sonar.engine.describe import DescribeProgress, DescriptionEngine
 from sonar.engine.llm import LLMConfig, create_llm_client
 from sonar.index.bundle import (
     SCHEMA_VERSION,
@@ -30,6 +31,12 @@ from sonar.index.bundle import (
 from sonar.index.store import ContextStore
 from sonar.mcp.server import build_server, run_stdio
 from sonar.relationships import map_relationships
+from sonar.scan_output import (
+    FailedTable,
+    print_discovery,
+    print_scan_summary,
+    print_table_progress,
+)
 
 _ACCEPTED_FORMS = (
     "postgresql://...",
@@ -78,6 +85,13 @@ class _ConnectorSpec:
     connector: Any
     connector_type: str
     database_label: str
+
+
+@dataclass
+class _ScanResult:
+    bundle: ContextBundle
+    failures: tuple[FailedTable, ...]
+    elapsed_seconds: float
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -242,7 +256,7 @@ def _run_scan(args: argparse.Namespace) -> int:
     bundle_dir = Path(args.bundle_dir)
 
     try:
-        bundle = asyncio.run(
+        result = asyncio.run(
             _scan_pipeline(
                 spec,
                 concurrency=args.concurrency,
@@ -258,8 +272,17 @@ def _run_scan(args: argparse.Namespace) -> int:
         print(f"scan failed: {message}", file=sys.stderr)
         return 1
 
-    ContextStore(bundle_dir).write(bundle)
-    _print_scan_summary(spec, bundle, bundle_dir)
+    ContextStore(bundle_dir).write(result.bundle)
+    print_scan_summary(
+        database_label=spec.database_label,
+        bundle=result.bundle,
+        bundle_dir=bundle_dir,
+        elapsed_seconds=result.elapsed_seconds,
+        failures=result.failures,
+        cross_database_dropped=getattr(spec.connector, "cross_database_foreign_keys_dropped", 0),
+        cross_database_label=getattr(spec.connector, "database", None),
+        cross_dataset_dropped=getattr(spec.connector, "cross_dataset_foreign_keys_dropped", 0),
+    )
     return 0
 
 
@@ -270,16 +293,14 @@ async def _scan_pipeline(
     model: str | None = None,
     base_url: str | None = None,
     bundle_dir: Path | None = None,
-) -> ContextBundle:
+) -> _ScanResult:
+    scan_start = time.monotonic()
     async with spec.connector as conn:
         tables = await conn.discover_tables()
         foreign_keys = await conn.discover_relationships()
 
         schema_count = len({t.schema for t in tables})
-        print(
-            f"Discovered {len(tables)} tables in {schema_count} schemas. "
-            "Generating semantic descriptions..."
-        )
+        print_discovery(len(tables), schema_count)
 
         sem = asyncio.Semaphore(_DB_SAMPLE_CONCURRENCY)
 
@@ -300,9 +321,21 @@ async def _scan_pipeline(
             config_kwargs["base_url"] = base_url
         config = LLMConfig(**config_kwargs)
         engine = DescriptionEngine(create_llm_client(config), config)
-        descriptions = await engine.describe_database(tables, samples)
 
-        print(f"Descriptions complete. Writing bundle to {bundle_dir or '.sonar'}...")
+        failures: list[FailedTable] = []
+
+        def _on_progress(event: DescribeProgress) -> None:
+            print_table_progress(event)
+            if event.event in ("failed", "provider_error"):
+                failures.append(
+                    FailedTable(
+                        schema=event.schema,
+                        name=event.table,
+                        error_reason=event.error_reason or "unknown error",
+                    )
+                )
+
+        descriptions = await engine.describe_database(tables, samples, on_progress=_on_progress)
 
     relationships = map_relationships(tables, foreign_keys)
 
@@ -320,40 +353,18 @@ async def _scan_pipeline(
         database=spec.database_label,
     )
 
-    return ContextBundle(
+    bundle = ContextBundle(
         meta=meta,
         tables=tuple(tables),
         descriptions=descriptions,
         relationships=tuple(relationships),
     )
 
-
-def _print_scan_summary(spec: _ConnectorSpec, bundle: ContextBundle, bundle_dir: Path) -> None:
-    print(
-        f"Scanned {spec.database_label}: "
-        f"{len(bundle.tables)} tables, {len(bundle.relationships)} relationships"
+    return _ScanResult(
+        bundle=bundle,
+        failures=tuple(failures),
+        elapsed_seconds=time.monotonic() - scan_start,
     )
-    print(f"Bundle written to {bundle_dir}")
-    failed_descriptions = sum(
-        1 for t in bundle.tables if bundle.descriptions.get((t.schema, t.name)) is None
-    )
-    if failed_descriptions:
-        print(
-            f"  {failed_descriptions} table descriptions failed " "(run with --verbose for details)"
-        )
-    dropped = getattr(spec.connector, "cross_database_foreign_keys_dropped", 0)
-    if dropped:
-        bound_db = getattr(spec.connector, "database", spec.database_label)
-        print(
-            f"{dropped} foreign keys reference tables outside database "
-            f"{bound_db} and were excluded"
-        )
-    cross_dataset_dropped = getattr(spec.connector, "cross_dataset_foreign_keys_dropped", 0)
-    if cross_dataset_dropped:
-        print(
-            f"{cross_dataset_dropped} foreign keys reference tables outside their "
-            f"dataset and were excluded"
-        )
 
 
 def _run_eval(args: argparse.Namespace) -> int:
