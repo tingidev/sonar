@@ -66,6 +66,8 @@ _BIGQUERY_INSTALL_HINT = (
     "BigQuery driver not installed. Install with: pip install 'sonar[bigquery]'"
 )
 
+_DB_SAMPLE_CONCURRENCY = 5
+
 
 class _DispatchError(Exception):
     """Raised when the positional argument cannot be mapped to a connector."""
@@ -97,12 +99,6 @@ def main(argv: list[str] | None = None) -> int:
         help=("Connection target. Accepted forms: " + "; ".join(_ACCEPTED_FORMS)),
     )
     scan_parser.add_argument(
-        "--url",
-        dest="url",
-        default=None,
-        help="Connection target (alias for the positional argument)",
-    )
-    scan_parser.add_argument(
         "--bundle-dir",
         dest="bundle_dir",
         default=".sonar",
@@ -119,7 +115,17 @@ def main(argv: list[str] | None = None) -> int:
         "--model",
         dest="model",
         default=None,
-        help="LLM model to use (e.g. anthropic/claude-haiku-4-5-20251001, gpt-4o, llama3)",
+        help="LLM model to use (e.g. anthropic/claude-haiku-4-5-20251001, gpt-4o, qwen3.6:27b)",
+    )
+    scan_parser.add_argument(
+        "--base-url",
+        dest="base_url",
+        default=None,
+        help=(
+            "Base URL for an OpenAI-compatible LLM endpoint "
+            "(e.g. http://localhost:11434/v1 for Ollama). "
+            "Takes precedence over the SONAR_LLM_BASE_URL environment variable."
+        ),
     )
 
     eval_parser = subparsers.add_parser("eval", help="Run evaluation reports on a bundle")
@@ -147,7 +153,10 @@ def main(argv: list[str] | None = None) -> int:
         dest="relationships_dsn",
         metavar="DSN",
         default=None,
-        help="Score relationship inference against the live database's declared FKs",
+        help=(
+            "Score relationship inference against the live database's declared FKs. "
+            "Connects directly to the database; --bundle-dir is not used in this mode."
+        ),
     )
     mode_group.add_argument(
         "--search",
@@ -215,9 +224,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_scan(args: argparse.Namespace) -> int:
-    positional = args.dsn or args.url
+    positional = args.dsn
     if not positional:
-        print("scan: DSN required (positional argument or --url)", file=sys.stderr)
+        print("scan: DSN required (positional argument)", file=sys.stderr)
+        return 2
+
+    if args.concurrency is not None and args.concurrency < 1:
+        print("scan: --concurrency must be 1 or greater", file=sys.stderr)
         return 2
 
     try:
@@ -229,7 +242,15 @@ def _run_scan(args: argparse.Namespace) -> int:
     bundle_dir = Path(args.bundle_dir)
 
     try:
-        bundle = asyncio.run(_scan_pipeline(spec, concurrency=args.concurrency, model=args.model))
+        bundle = asyncio.run(
+            _scan_pipeline(
+                spec,
+                concurrency=args.concurrency,
+                model=args.model,
+                base_url=args.base_url,
+                bundle_dir=bundle_dir,
+            )
+        )
     except Exception as exc:  # noqa: BLE001 - CLI boundary
         # Connection-error paths can embed credentials in str(exc); scrub the
         # raw positional out before it reaches stderr.
@@ -247,12 +268,20 @@ async def _scan_pipeline(
     *,
     concurrency: int | None = None,
     model: str | None = None,
+    base_url: str | None = None,
+    bundle_dir: Path | None = None,
 ) -> ContextBundle:
     async with spec.connector as conn:
         tables = await conn.discover_tables()
         foreign_keys = await conn.discover_relationships()
 
-        sem = asyncio.Semaphore(5)
+        schema_count = len({t.schema for t in tables})
+        print(
+            f"Discovered {len(tables)} tables in {schema_count} schemas. "
+            "Generating semantic descriptions..."
+        )
+
+        sem = asyncio.Semaphore(_DB_SAMPLE_CONCURRENCY)
 
         async def _sample_one(t: Table) -> tuple[tuple[str, str], list[dict]]:
             async with sem:
@@ -267,9 +296,13 @@ async def _scan_pipeline(
             config_kwargs["max_concurrent_calls"] = concurrency
         if model:
             config_kwargs["model"] = model
+        if base_url:
+            config_kwargs["base_url"] = base_url
         config = LLMConfig(**config_kwargs)
         engine = DescriptionEngine(create_llm_client(config), config)
         descriptions = await engine.describe_database(tables, samples)
+
+        print(f"Descriptions complete. Writing bundle to {bundle_dir or '.sonar'}...")
 
     relationships = map_relationships(tables, foreign_keys)
 
@@ -301,6 +334,13 @@ def _print_scan_summary(spec: _ConnectorSpec, bundle: ContextBundle, bundle_dir:
         f"{len(bundle.tables)} tables, {len(bundle.relationships)} relationships"
     )
     print(f"Bundle written to {bundle_dir}")
+    failed_descriptions = sum(
+        1 for t in bundle.tables if bundle.descriptions.get((t.schema, t.name)) is None
+    )
+    if failed_descriptions:
+        print(
+            f"  {failed_descriptions} table descriptions failed " "(run with --verbose for details)"
+        )
     dropped = getattr(spec.connector, "cross_database_foreign_keys_dropped", 0)
     if dropped:
         bound_db = getattr(spec.connector, "database", spec.database_label)
@@ -488,6 +528,11 @@ def _run_serve(args: argparse.Namespace) -> int:
             return 2
         if spec.connector_type == "postgres":
             dsn_for_sample_tool = positional
+        else:
+            print(
+                f"Note: live sampling not available for {spec.connector_type} connections. "
+                "Serving 4 bundle-only tools."
+            )
 
     try:
         bundle = ContextStore(bundle_dir).read()
