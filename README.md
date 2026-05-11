@@ -311,6 +311,45 @@ much of the FK graph from naming patterns alone — that compounds with this
 connector to give Snowflake users the same agent-ready graph that Postgres
 users get from declared FKs.
 
+### Scan BigQuery
+
+The BigQuery driver is a separate install:
+
+```bash
+pip install 'sonar-ai[bigquery]'
+```
+
+Authenticate with Application Default Credentials (recommended) or a service
+account key file:
+
+```bash
+# ADC — authenticate once with gcloud, then scan
+gcloud auth application-default login
+
+# Option 1: DSN form — project ID only (scans all datasets in the project)
+sonar scan bigquery://my-project-id
+
+# Option 2: DSN form — project ID + dataset (scans one dataset)
+sonar scan bigquery://my-project-id/my_dataset
+
+# Option 3: Bare keyword — reads BIGQUERY_PROJECT and BIGQUERY_DATASET env vars
+export BIGQUERY_PROJECT=my-project-id
+export BIGQUERY_DATASET=my_dataset   # optional; omit to scan all datasets
+sonar scan bigquery
+```
+
+If you use a service account key file instead of ADC, set the standard Google
+environment variable before scanning:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
+sonar scan bigquery://my-project-id
+```
+
+BigQuery datasets are mapped to Sonar schemas. Foreign key constraints are
+extracted from `INFORMATION_SCHEMA` per dataset; cross-dataset FKs are excluded
+(BigQuery does not enforce them at the storage layer).
+
 ### Start the MCP server
 
 **Bundle-only mode** — stateless, no database credentials needed:
@@ -445,14 +484,14 @@ Sonar is async throughout (psycopg3, FastMCP), uses frozen dataclasses for immut
 
 ## Roadmap
 
-Sonar is in active development. Current status: **Phase 2 complete** — Postgres, Snowflake, and DuckDB connectors, multi-provider LLM support, inferred relationships, evaluation toolkit.
+Sonar is in active development. Current status: **Phase 3 complete** — Postgres, Snowflake, DuckDB, and BigQuery connectors, multi-provider LLM support, inferred relationships, evaluation toolkit.
 
 | Phase | Status | Scope |
 |-------|--------|-------|
 | **Phase 1** | Complete | Postgres connector, context engine, MCP server |
 | **Phase 2** | Complete | Snowflake + DuckDB connectors, inferred relationships, evaluation toolkit |
-| **Phase 3** | In progress | Multi-provider LLM (Anthropic, OpenAI, Ollama), BigQuery connector |
-| **Phase 4** | Planned | Enterprise features, context versioning, community contributions |
+| **Phase 3** | Complete | Multi-provider LLM (Anthropic, OpenAI, Ollama), BigQuery connector |
+| **Phase 4** | Planned | UX polish, progress reporting, developer experience, community contributions |
 
 See [ROADMAP.md](ROADMAP.md) for detailed milestones.
 
@@ -460,7 +499,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed milestones.
 
 Sonar is open to contributions. The most impactful areas:
 
-- **Connectors** — MySQL, SQLite, BigQuery, S3/Parquet
+- **Connectors** — MySQL, SQLite, S3/Parquet
 - **Bug reports and feature requests** — [open an issue](https://github.com/tingidev/sonar/issues)
 
 Development setup:
