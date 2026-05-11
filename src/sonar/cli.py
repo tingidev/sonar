@@ -36,6 +36,8 @@ _ACCEPTED_FORMS = (
     "postgres://...",
     "snowflake://USER:PASS@ACCOUNT/DATABASE/SCHEMA[?warehouse=...&role=...]",
     "snowflake (bare keyword; reads SNOWFLAKE_* env vars)",
+    "duckdb:///path/to/file.duckdb",
+    "duckdb://:memory:",
 )
 
 _SNOWFLAKE_ENV_TO_KWARG: dict[str, str] = {
@@ -55,6 +57,8 @@ _SNOWFLAKE_ENV_TO_KWARG: dict[str, str] = {
 _SNOWFLAKE_INSTALL_HINT = (
     "Snowflake driver not installed. Install with: pip install 'sonar[snowflake]'"
 )
+
+_DUCKDB_INSTALL_HINT = "DuckDB driver not installed. Install with: pip install 'sonar[duckdb]'"
 
 
 class _DispatchError(Exception):
@@ -519,12 +523,28 @@ def _select_connector(positional: str) -> _ConnectorSpec:
             database_label=_snowflake_label(connect_kwargs),
         )
 
+    if positional.startswith("duckdb://"):
+        _ensure_duckdb_driver()
+        path = positional[len("duckdb://") :]
+        from sonar.connectors.duckdb import DuckDBConnector
+
+        return _ConnectorSpec(
+            connector=DuckDBConnector(path),
+            connector_type="duckdb",
+            database_label=Path(path).name,
+        )
+
     raise _DispatchError("unrecognized argument; accepted forms: " + "; ".join(_ACCEPTED_FORMS))
 
 
 def _ensure_snowflake_driver() -> None:
     if importlib.util.find_spec("snowflake.connector") is None:
         raise _DispatchError(_SNOWFLAKE_INSTALL_HINT)
+
+
+def _ensure_duckdb_driver() -> None:
+    if importlib.util.find_spec("duckdb") is None:
+        raise _DispatchError(_DUCKDB_INSTALL_HINT)
 
 
 def _snowflake_kwargs_from_url(url: str) -> dict[str, Any]:
