@@ -33,7 +33,7 @@ Multi-provider LLM support, two additional connectors.
 
 11. ~~`llm-multi-provider`~~ — Two-SDK dispatcher: `openai` SDK for OpenAI + any OpenAI-compat endpoint (Ollama, Groq, vLLM via `SONAR_LLM_BASE_URL`), `anthropic` SDK natively. Slash-prefix routing (`anthropic/model-id`), `--model` CLI flag, factory function as sole public entry point. (archived 2026-05-06)
 12. ~~`duckdb-connector`~~ — DuckDB data source adapter. `asyncio.to_thread` wrapping the sync driver, schema enumeration over default-to-main, row counts via `duckdb_tables().estimated_size`, `read_only=True` for files (skipped for `:memory:`). (archived 2026-05-08)
-13. `bigquery-connector` — BigQuery adapter. GCP credentials, dataset/table enumeration, sampling via `TABLESAMPLE`.
+13. ~~`bigquery-connector`~~ — BigQuery adapter. REST API for schema discovery (regions-agnostic), `Semaphore(20)` per-table fan-out via `_discover_table`, per-dataset INFORMATION_SCHEMA for FK/PK with per-dataset failure isolation, ADC-only auth, `SELECT * LIMIT N` sampling. (archived 2026-05-11)
 
 ### Deferred (Phase 3+)
 

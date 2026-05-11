@@ -692,6 +692,84 @@ The third data-source connector. DuckDB is an embedded, in-process analytics dat
 
 ---
 
+## BigQuery Connector
+
+### What we're building
+
+The fourth data-source connector. BigQuery is GCP's fully-managed cloud data warehouse — no local connection, REST API rather than SQL cursor, three-level identity (project → dataset → table) where the others have two. The connector discovers datasets/tables/columns via the REST API, FK/PK constraints via per-dataset INFORMATION_SCHEMA, and samples rows with `SELECT * LIMIT N`. Output shapes match Postgres, Snowflake, and DuckDB — downstream consumers don't branch on connector type.
+
+### Architecture
+
+- **Inputs:** a GCP project ID, an optional dataset ID (constructor scope filter), Application Default Credentials picked up from the environment.
+- **Outputs:** the same `list[Table]`, `list[ForeignKey]`, `list[dict]` shapes as the other connectors. The `Table.schema` field carries the dataset name; the project is held on the connector and threaded into sample queries.
+- **Shape decisions:**
+  1. **REST API for discovery, not INFORMATION_SCHEMA SQL.** BigQuery's INFORMATION_SCHEMA is region-scoped — you must know each dataset's region before you can query it, and the only way to learn the region is a REST `get_dataset` call. The REST path is unavoidable; layering SQL on top adds complexity, billing surface, and a flattening of nested RECORDs that's worse than the native `SchemaField` tree.
+  2. **Async via `asyncio.to_thread` + `Semaphore(20)` for `get_table` fan-out.** The `google-cloud-bigquery` client is synchronous. `_discover_table` is a named coroutine gated by a shared semaphore so 1000-table projects complete in ~50 round trips without exhausting BigQuery's `tables.get` quota.
+  3. **Nested RECORD rendered into `data_type` string, top-level columns only.** A RECORD column surfaces as `Column(data_type="RECORD<city STRING, zip STRING>")`. REPEATED appends ` REPEATED` to the type string. No dot-notation column names — the context-index bundle's on-disk key encoding stays unambiguous, and `_reject_dotted_identifier` continues to hold.
+
+### Key decisions
+
+- **REST API over INFORMATION_SCHEMA for discovery (D1, expensive to reverse).** The competing path looked symmetric with the other connectors — `project.region-X.INFORMATION_SCHEMA.COLUMNS` SQL — but it's broken by design for multi-region projects. You need `list_datasets()` + per-dataset `get_dataset()` to determine regions before any SQL can run; that's the same REST surface, plus billed query bytes, plus dot-flattened RECORD reconstruction. REST path is O(D + T) API calls with `Semaphore(20)` parallelism. Revisit when BigQuery ships a free cross-region INFORMATION_SCHEMA view.
+
+- **`asyncio.Semaphore(20)` with a named `_discover_table` coroutine (D2, cheap to reverse).** Pinning the value explicitly (not inheriting from `_scan_pipeline`'s 5) makes the auditing surface obvious. 20 covers projects with hundreds of tables without quota risk; the named coroutine makes the semaphore scope greppable.
+
+- **Inline nested RECORD in `data_type`, no dot-notation columns (D3, expensive to reverse).** The alternative — flatten `address.city`, `address.zip` — breaks `_reject_dotted_identifier` and requires key-encoding changes in `context-index`. The LLM sees enough semantic content in `RECORD<city STRING, zip STRING>` for description quality; nested-field indexing is deferred until a user actually asks for it.
+
+- **`SELECT * LIMIT 5`, no TABLESAMPLE (D4, cheap to reverse).** `TABLESAMPLE SYSTEM (p PERCENT)` selects storage blocks probabilistically and returns 0 rows for tables smaller than a block (~1 MB). The fallback (detect 0, retry with LIMIT) doubles API calls in the common small-table case. LIMIT 5 on columnar storage scans approximately one micro-partition — negligible cost, deterministic result.
+
+- **Per-dataset INFORMATION_SCHEMA for FK/PK (D5, cheap to reverse).** BigQuery's non-enforced PK/FK constraints (metadata-only, added 2022) have no REST endpoint — INFORMATION_SCHEMA is the only path. Per-dataset (not regional meta-table) form avoids dataset-region detection, same reason as D1. Cross-dataset FKs are dropped with a counter, analogous to Snowflake's cross-database FK filtering.
+
+- **Asymmetric per-dataset failure isolation in `discover_tables` and `discover_relationships` (post-audit).** Both methods now catch `_fetch_constraints` exceptions per-dataset, log a warning, and continue. The asymmetry between methods (one drops PK info, the other drops FKs for that dataset) is intentional — partial discovery beats total failure when one restricted dataset would otherwise abort the whole scan. Caught by `/opsx:audit` as a critical finding; the spec scenario now explicitly covers both call sites.
+
+- **ADC-only auth (D7, cheap to reverse).** `google-cloud-bigquery` resolves credentials via Application Default Credentials automatically: `gcloud auth application-default login`, `GOOGLE_APPLICATION_CREDENTIALS`, Workload Identity, GCE metadata. No Sonar-level auth logic, no credentials in DSN. ADC failure surfaces as a clear client-side error rather than a buried timeout.
+
+- **Backtick quoting applied to project ID, dataset, and table (D8).** BigQuery uses `` ` ``-quoting, not `"`. The project ID is quoted because GCP IDs can contain hyphens (which SQL parses as operators) and colons (domain-scoped projects like `example.com:my-project`). The project ID itself skips `_reject_dotted_identifier` — domain-scoped IDs legitimately contain dots, and the quoting handles them.
+
+### Implementation details
+
+- **`_render_bq_type` recursion handles both `RECORD` and `STRUCT`.** BigQuery's `SchemaField.field_type` returns either string depending on context. The recursion descends `field.fields` for composite types and appends ` REPEATED` post-rendering based on `field.mode`. Maximum BigQuery nesting depth is 15 — stack safe.
+
+- **`_run_query_as_dicts` converts `Row` to `dict` explicitly.** `client.query().result()` yields `google.cloud.bigquery.Row` objects (named tuples). `_serialize_row` expects a mapping; passing a `Row` directly produces incorrect output on columns with non-string keys. The `dict(row)` step is explicit, not implicit.
+
+- **Per-dataset isolation pattern shared between methods.** Both `discover_tables` and `discover_relationships` iterate datasets in plain Python (not gathered with `asyncio.gather`) so a per-dataset try/except can scope a single failure. `gather(..., return_exceptions=True)` was considered but rejected — the per-iteration warning needs the dataset name in scope, which a gathered approach loses.
+
+- **`cross_dataset_foreign_keys_dropped` counter mirrors Snowflake's `cross_database_foreign_keys_dropped`.** Same `getattr` fallback in `_print_scan_summary` (`getattr(spec.connector, "cross_dataset_foreign_keys_dropped", 0)`) — Postgres and DuckDB connectors don't carry it, the renderer falls back to `0` silently.
+
+- **`_bq_quote` is symmetric with `_bigquery_sql._backtick`.** Both escape backticks the same way and reject null bytes the same way. The two functions exist because `_bigquery_sql.py` is dependency-free (no import of the connector module) so the SQL builder can be unit-tested without bringing in the BigQuery client.
+
+- **`bigquery://PROJECT[/DATASET]` DSN parsing handles trailing slash.** `bigquery://my-project/` is treated as project-only (no dataset scope). The bare `bigquery` keyword falls back to env vars (`BIGQUERY_PROJECT` required, `BIGQUERY_DATASET` optional). Explicit URL wins over env vars when both are present.
+
+- **`_reject_dotted_identifier` applied to column names in FK assembly (post-audit).** Schema and table names go through the check, but column names initially did not — caught as a warning during `/opsx:audit`. Source/target column names now get the same protection so the bundle key encoding invariant holds end-to-end.
+
+- **Unit tests use real `bigquery.SchemaField` objects, no mocks.** Mocking the client returns whatever you tell it to return — a check that the test framework works, not that the production code does. Real `SchemaField` construction exercises the actual API contract; the live-API surface is covered by gated integration tests against `bigquery-public-data.samples.shakespeare`.
+
+### What goes wrong
+
+- **`num_rows` lag after streaming inserts.** BigQuery's metadata count can lag for tables with active streaming writes. Same caveat as Postgres `reltuples` and DuckDB `estimated_size` — surfaced as `int | None`, downstream consumers handle `None`.
+
+- **Per-dataset INFORMATION_SCHEMA quota cost.** Each constraint query is a billed SQL query (typically sub-MB but not free). A project with 50 datasets makes 50 constraint queries during `discover_tables` and another 50 during `discover_relationships`. For most projects (no declared constraints), this is wasted cost — but BigQuery has no REST endpoint for FK constraints, so there's no alternative.
+
+- **Cross-region dataset enumeration latency.** `list_datasets()` returns datasets from all regions transparently, but the subsequent `get_table()` round trips depend on the dataset's region. A project with datasets in `us`, `eu`, and `asia-northeast1` will see uneven per-table latency. The `Semaphore(20)` parallelism amortises but doesn't eliminate this.
+
+- **MotherDuck-style cross-project sharing not modelled.** A connector instance is bound to one project; `bigquery-public-data` tables are accessible for sampling (the project ID is part of the SQL identifier) but not for discovery. A user wanting to scan a shared dataset they don't own would currently need two scans.
+
+### Decisions made
+
+- REST API (`list_datasets` / `list_tables` / `get_table`) for schema discovery; INFORMATION_SCHEMA SQL only for FK/PK.
+- `asyncio.to_thread` wrapping the sync `google-cloud-bigquery` client; `Semaphore(20)` for `get_table` fan-out via a named `_discover_table` coroutine.
+- Nested RECORD rendered inline as `RECORD<name TYPE, ...>` in the column `data_type` string; REPEATED appended as a suffix.
+- `SELECT * LIMIT N` for sampling; no TABLESAMPLE.
+- Per-dataset INFORMATION_SCHEMA (not regional meta-table form) for constraints; cross-dataset FKs dropped with a counter.
+- Per-dataset failure isolation in both `discover_tables` and `discover_relationships` — restricted datasets log a warning and are skipped without aborting the scan.
+- ADC-only auth; no credentials in DSN or constructor args.
+- Backtick quoting on project, dataset, and table for `sample_table` queries; project ID skips `_reject_dotted_identifier` because domain-scoped IDs legitimately contain dots.
+- `dict(row)` conversion explicit before `_serialize_row`; `Row` named tuples don't behave as mappings for all paths.
+- `cross_dataset_foreign_keys_dropped` counter exposed and rendered in scan summary, mirroring Snowflake's cross-database equivalent.
+- `_reject_dotted_identifier` applied to column names in FK assembly as well as schema/table — end-to-end bundle key encoding invariant.
+- Unit tests use real `SchemaField` objects; integration tests gated on `BIGQUERY_TEST_PROJECT` env var hitting `bigquery-public-data.samples.shakespeare`.
+
+---
+
 ## Multi-Provider LLM
 
 ### What we're building
