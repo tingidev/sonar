@@ -38,6 +38,8 @@ _ACCEPTED_FORMS = (
     "snowflake (bare keyword; reads SNOWFLAKE_* env vars)",
     "duckdb:///path/to/file.duckdb",
     "duckdb://:memory:",
+    "bigquery://PROJECT_ID[/DATASET_ID]",
+    "bigquery (bare keyword; reads BIGQUERY_PROJECT/BIGQUERY_DATASET env vars)",
 )
 
 _SNOWFLAKE_ENV_TO_KWARG: dict[str, str] = {
@@ -59,6 +61,10 @@ _SNOWFLAKE_INSTALL_HINT = (
 )
 
 _DUCKDB_INSTALL_HINT = "DuckDB driver not installed. Install with: pip install 'sonar[duckdb]'"
+
+_BIGQUERY_INSTALL_HINT = (
+    "BigQuery driver not installed. Install with: pip install 'sonar[bigquery]'"
+)
 
 
 class _DispatchError(Exception):
@@ -302,6 +308,12 @@ def _print_scan_summary(spec: _ConnectorSpec, bundle: ContextBundle, bundle_dir:
             f"{dropped} foreign keys reference tables outside database "
             f"{bound_db} and were excluded"
         )
+    cross_dataset_dropped = getattr(spec.connector, "cross_dataset_foreign_keys_dropped", 0)
+    if cross_dataset_dropped:
+        print(
+            f"{cross_dataset_dropped} foreign keys reference tables outside their "
+            f"dataset and were excluded"
+        )
 
 
 def _run_eval(args: argparse.Namespace) -> int:
@@ -534,6 +546,20 @@ def _select_connector(positional: str) -> _ConnectorSpec:
             database_label=Path(path).name,
         )
 
+    if positional == "bigquery" or positional.startswith("bigquery://"):
+        _ensure_bigquery_driver()
+        if positional == "bigquery":
+            project_id, dataset_id = _bigquery_from_env()
+        else:
+            project_id, dataset_id = _bigquery_from_url(positional)
+        from sonar.connectors.bigquery import BigQueryConnector
+
+        return _ConnectorSpec(
+            connector=BigQueryConnector(project_id, dataset_id=dataset_id),
+            connector_type="bigquery",
+            database_label=_bigquery_label(project_id, dataset_id),
+        )
+
     raise _DispatchError("unrecognized argument; accepted forms: " + "; ".join(_ACCEPTED_FORMS))
 
 
@@ -545,6 +571,38 @@ def _ensure_snowflake_driver() -> None:
 def _ensure_duckdb_driver() -> None:
     if importlib.util.find_spec("duckdb") is None:
         raise _DispatchError(_DUCKDB_INSTALL_HINT)
+
+
+def _ensure_bigquery_driver() -> None:
+    if importlib.util.find_spec("google.cloud.bigquery") is None:
+        raise _DispatchError(_BIGQUERY_INSTALL_HINT)
+
+
+def _bigquery_from_url(url: str) -> tuple[str, str | None]:
+    # `bigquery://PROJECT[/DATASET]`; trailing slash with no dataset → no scoping.
+    rest = url[len("bigquery://") :]
+    if not rest:
+        raise _DispatchError("bigquery URL must include a project id")
+    if "/" not in rest:
+        return rest, None
+    project, _, dataset = rest.partition("/")
+    if not project:
+        raise _DispatchError("bigquery URL must include a project id")
+    return project, (dataset or None)
+
+
+def _bigquery_from_env() -> tuple[str, str | None]:
+    project = os.environ.get("BIGQUERY_PROJECT")
+    if not project:
+        raise _DispatchError("missing required env var: BIGQUERY_PROJECT")
+    dataset = os.environ.get("BIGQUERY_DATASET") or None
+    return project, dataset
+
+
+def _bigquery_label(project_id: str, dataset_id: str | None = None) -> str:
+    if dataset_id:
+        return f"{project_id}.{dataset_id}"
+    return project_id
 
 
 def _snowflake_kwargs_from_url(url: str) -> dict[str, Any]:
