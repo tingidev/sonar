@@ -491,7 +491,7 @@ Sonar is in active development. Current status: **Phase 3 complete** — Postgre
 | **Phase 1** | Complete | Postgres connector, context engine, MCP server |
 | **Phase 2** | Complete | Snowflake + DuckDB connectors, inferred relationships, evaluation toolkit |
 | **Phase 3** | Complete | Multi-provider LLM (Anthropic, OpenAI, Ollama), BigQuery connector |
-| **Phase 4** | Planned | UX polish, progress reporting, developer experience, community contributions |
+| **Phase 4** | In progress | Description quality, schema drift detection, first-run experience |
 
 See [ROADMAP.md](ROADMAP.md) for detailed milestones.
 
