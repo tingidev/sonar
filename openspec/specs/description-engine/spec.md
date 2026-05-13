@@ -50,6 +50,18 @@ The system SHALL expose `DescriptionEngine.describe_table(table: Table, samples:
 - **AND** SHALL include the sample rows serialised as JSON
 - **AND** SHALL describe the expected output JSON shape including the `SemanticType` and `PIIRisk` enum values (including the `medium` bucket)
 
+#### Scenario: Prompt handles abbreviated column names
+
+- **WHEN** `describe_table` is called with a table whose columns use abbreviations (e.g., `ae_pt`, `role_cod`, `BENE_ESRD_IND`)
+- **THEN** the prompt SHALL instruct the LLM to infer the likely expanded meaning of abbreviated column names
+- **AND** the returned description SHALL include the inferred meaning, not just repeat the abbreviation
+
+#### Scenario: Prompt handles domain-specific schemas
+
+- **WHEN** `describe_table` is called with a table from a healthcare, retail, sports statistics, or enterprise domain
+- **THEN** the prompt SHALL instruct the LLM to identify the domain from contextual clues (table name, column patterns, sample values)
+- **AND** the returned description SHALL use domain-appropriate terminology
+
 #### Scenario: PII columns are classified by the LLM
 
 - **WHEN** `describe_table` is called with a table containing an `email` column and an `ssn` column and the mocked LLM returns corresponding `pii_risk` values of `"high"`

@@ -145,18 +145,20 @@ The diff SHALL NOT perform deep text comparison of description bodies — a bool
 
 When invoked with `--descriptions`, the system SHALL load the bundle, and for each table with a non-null description, send the table schema and generated description to an LLM judge that scores three dimensions:
 
-- **Accuracy** (0.0 - 1.0): does the description correctly reflect the schema?
-- **Completeness** (0.0 - 1.0): are all important aspects of the table covered?
-- **Specificity** (0.0 - 1.0): does the description add domain knowledge beyond column names?
+- **Accuracy** (1-5): does the description correctly reflect what the schema shows? Claims must be supported by column names, types, and structural signals.
+- **Specificity** (1-5): does the description add useful detail beyond restating column names?
+- **Domain inference** (1-5): does the description correctly identify the table's domain and use appropriate terminology?
 
-The system SHALL report per-table scores and aggregate means across all scored tables. Tables scoring below 0.5 on any dimension SHALL be flagged in the report. The judge SHALL NOT receive row samples — scoring is based on schema and description only.
+Each dimension SHALL include a reasoning string from the judge.
+
+The system SHALL report per-table scores and aggregate means across all scored tables. Tables scoring below 3 on any dimension SHALL be flagged in the report. The judge SHALL NOT receive row samples -- scoring is based on schema and description only.
 
 This mode is advisory. The system SHALL NOT define pass/fail thresholds.
 
 #### Scenario: High-quality descriptions score well
 
-- **WHEN** `sonar eval --descriptions` is invoked against a bundle with accurate, complete, specific descriptions
-- **THEN** aggregate mean scores SHALL each exceed 0.7
+- **WHEN** `sonar eval --descriptions` is invoked against a bundle with accurate, specific, domain-aware descriptions
+- **THEN** aggregate mean scores SHALL each be at least 4
 
 #### Scenario: Tables with null descriptions are skipped
 
@@ -166,8 +168,8 @@ This mode is advisory. The system SHALL NOT define pass/fail thresholds.
 
 #### Scenario: Low-scoring table is flagged
 
-- **WHEN** a table's description scores below 0.5 on the accuracy dimension
-- **THEN** that table SHALL appear in the flagged list with its per-dimension scores
+- **WHEN** a table's description scores below 3 on the accuracy dimension
+- **THEN** that table SHALL appear in the flagged list with its per-dimension scores and reasoning
 
 #### Scenario: LLM judge failure is non-fatal
 

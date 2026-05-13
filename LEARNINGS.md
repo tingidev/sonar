@@ -870,3 +870,74 @@ The first-run UX for `sonar scan`. Before this change the command was near-silen
 - Cross-DB / cross-dataset FK counters passed explicitly into `print_scan_summary`; renderer holds no connector references.
 
 ---
+
+## Description Quality Eval
+
+### What we're building
+
+A measurement-driven loop for the description engine. `sonar eval --descriptions` graduates from same-model-judge advisory output into an iteration surface: cross-provider judging (Anthropic generates, OpenAI judges), deterministic round-robin sampling for cheap re-runs, and versioned JSON artifacts that capture per-dimension reasoning + a SHA-256 prompt hash so two runs can be compared meaningfully. Six fixture databases (ChEMBL, FAERS, TPC-DS, AdventureWorks, Lahman, CMS SynPUF) span the messy-schema space the engine has to handle. Downstream consumer: future CI-gated prompt regression and the next round of prompt-engineering changes.
+
+### Architecture
+
+```
+   bundle (descriptions)
+        │
+        ▼
+   select_sample_tables  ──►  evaluate_descriptions  ──►  DescriptionQualityReport
+        │ (round-robin)          │ (judge calls)             │
+        │                        ▼                            │
+        │                   judge LLM (gpt-4o)               │
+        ▼                                                     ▼
+   evaluated_tables  ───────────────────────►  build_artifact ──► JSON file
+                                                       │
+                                                  prompt_version_hash
+                                                  (sha256 of SYSTEM_PROMPT +
+                                                   inspect.getsource(build_table_prompt))
+```
+
+Two-model topology: the generator (recorded in the bundle's `meta.json` and reflected in the artifact's `generator_model` field) is separate from the judge (configured per-eval via `--judge-model`). This break is the change's most consequential shape decision — same-model judging carries a known availability bias, and the judge must be free to dock claims the generator emitted with confidence. Integer 1-5 dimensions replace the old 0.0-1.0 floats; three refined dimensions (accuracy, specificity, domain_inference) replace the old four (accuracy, completeness, specificity), each carrying a one-sentence reasoning string. The reasoning is the highest-signal field for prompt iteration — judge scores tell you *how much* the engine missed, judge reasoning tells you *why*.
+
+### Key decisions
+
+- **Integer 1-5 over float 0.0-1.0 (D6 in design.md).** The old float scale clusters around 0.7-0.9 and the difference between 0.78 and 0.82 carries no inter-rater meaning. A 1-5 integer with rubric anchors at each level forces the judge to pick a stance, makes inter-run variance human-readable, and aligns with how operators triage ("flag anything < 3 on any dimension"). Reversibility cheap — only the report shape changes.
+- **Cross-provider judge by default (D1).** `--judge-model gpt-4o` against an Anthropic-generated bundle. Defending against same-model bias was the explicit motivation for the eval refactor; making cross-provider the documented happy path keeps the bias from creeping back. The flag still defaults to `--model` (or generator) when omitted — backward-compatible for users on a single-provider setup.
+- **Round-robin sampling for `--sample N` (D2).** Tables sorted within schema, interleaved across schemas in sorted schema order. Cheap (~10 judge calls per DB during iteration), deterministic (same 10 tables every run), spec-pinned (5 scenarios covering equal/uneven/single-schema/N>available). Picking 10 random tables would invalidate run-over-run comparison; picking the first 10 by name would underrepresent multi-schema DBs like AdventureWorks.
+- **SHA-256 of `SYSTEM_PROMPT + inspect.getsource(build_table_prompt)` for the prompt hash (D3).** Hashing the rendered output would change with every table; hashing source captures the spec-relevant prompt surface. `inspect.getsource` is the Python idiom; works across module reloads. `LLMConfig.max_tokens` is deliberately *not* in the hash — it's request envelope, not prompt content. Re-evaluate if a future change makes the envelope semantically prompt-relevant.
+- **`total_judge_failures` keeps provider + parse errors fused.** The CLI guard only cares about "did anything succeed?" — splitting into two counters would let a future reader add a half-broken check that ignores one failure type. Audit-flagged and resolved by naming the field for what it counts (both kinds).
+- **Six fixtures, not ten.** ChEMBL (clean canonical names), FAERS (heavy abbreviations), TPC-DS (synthetic warehouse), AdventureWorks (multi-schema enterprise), Lahman (sports domain), CMS SynPUF (claims with wide tables). Each represents a distinct failure mode for the description engine. Adding a seventh would dilute the signal without revealing a new pattern; the fixture suite is a regression net, not a survey.
+- **`max_tokens` default raised 4096 → 16384.** CMS SynPUF's `carrier` table has 142 columns; the column-description JSON alone needed >8K tokens. The old 4096 default silently truncated the response and the parser failed with no actionable error. Wide-table support is now table-stakes, not optional.
+
+### Implementation details
+
+- **`evaluate_descriptions(tables=...)` iterates the argument list in order.** Audit-tightened: previously the function filtered `bundle.descriptions.items()` by a set of allowed keys, which meant the artifact's `evaluated_tables` field (computed externally via `select_sample_tables`) could disagree on order or set with what the function actually iterated. Now the CLI computes the list once via `select_sample_tables(bundle, sample)` and passes it through; iteration order matches the artifact exactly. The no-`tables` branch retains the original `bundle.descriptions.items()` behaviour for direct API consumers.
+- **Round-robin via per-schema sorted lists + index-based interleaving.** `defaultdict(list)` keyed by schema, sort each list by table name, then `for schema in sorted(schemas): take_one_at(index)` until N reached. Algorithm correctness pinned by the spec scenarios — five tests, not implementation tests but spec scenarios converted to test cases.
+- **`_compact_samples` drops keys that are null across all rows in the prompt.** Wide claims tables (CMS) have many never-populated columns in a 5-row sample; stripping them keeps signal density high without hiding structure (the full column list is still rendered above). Triggered unconditionally; harmless when no all-null columns exist.
+- **Wide-table guidance triggers at 30+ columns.** `build_table_prompt` adds a brevity note ("keep each column description to a short noun phrase") when `len(table.columns) >= 30`. Threshold picked from CMS column-count observations; reversible.
+- **Artifact `run_timestamp` is ISO 8601 with `Z` suffix.** `datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")`. Microseconds dropped so artifacts diff cleanly. The `Z` form is shorter and unambiguous; downstream consumers parse both forms.
+- **CLI exits 1 if `scored_count == 0 and total_judge_failures > 0`.** A run where every judge call failed shouldn't masquerade as success with all-zero means. Stderr line names the failure count.
+
+### What goes wrong
+
+- **Judge stochasticity is real on small samples.** Re-running gpt-4o against the same FAERS iter1 bundle four times produced accuracy means of 4.14, 4.29, 4.29, 4.57 — a 0.18 stdev. On a 7-table DB one ±1 swing on a single table = ±0.14 mean. *Lesson:* tight verdicts on small samples need multi-run judging to bound the noise. The first run of an eval is a point estimate, not a measurement.
+- **Threshold-setting after seeing data invites anchoring bias.** The initial 4.4 accuracy threshold was picked because it sat "just under" the baseline FAERS score of 4.43 — a circular bar that baseline passes by construction. When FAERS regressed to 4.14, the bar slid to 4.0 to keep iter1 passing. The right gate is to **pre-register the bound** (before any iteration data) on what counts as a regression — "no DB drops more than X from its own baseline" — and accept that small-sample DBs may need wider bands. Documented as a `Resolved 2026-05-12` note in the archived `design.md` Open Questions.
+- **D8 trade-off manifests via verbosity, not just niche-domain inference.** The system-prompt change "anchor claims to schema evidence" pushed the generator toward longer descriptions on sparse-schema tables (FAERS `rpsr` has 3 columns). Longer descriptions give the judge more surface to flag as "claim not supported by schema". `rpsr` deterministically regressed 4→3 across all 4 re-judge runs — a *real* regression caused by the prompt change. The wins on chembl (`activity_supp`) and lahman (`collegeplaying`) covered for it in aggregate, but the per-table pattern is worth respecting in future prompt iterations.
+- **Pearson(accuracy, domain_inference) varies wildly across DBs.** Chembl/lahman +0.87, FAERS +0.35, TPC-DS/AdventureWorks slightly negative. The design.md open question asked whether to merge dimensions if correlation ≥ 0.85 universally — answer was no, *and* the variance itself was the signal. Clean schemas (column names imply domain) correlate; messy schemas decouple. Keep the dimensions split.
+- **Prompt hash only covers `SYSTEM_PROMPT + build_table_prompt` source.** Changes to `LLMConfig.max_tokens`, the chosen model, or the response-parsing logic don't shift the hash. By design — those are envelope/parsing, not prompt — but a reader expecting "same hash = same descriptions" can be wrong. The artifact's separate `generator_model` field carries the rest of the determinism story.
+- **`evaluated_tables` in the artifact is the *attempted* set, not the *scored* set.** Tables where the judge failed (provider or parse) appear in `evaluated_tables` but not in `per_table`. Correct — the artifact documents what was tried, the metrics document what was scored. Easy to misread when scanning.
+
+### Decisions made
+
+- Integer 1-5 dimensions replacing float 0.0-1.0; three refined dimensions (accuracy, specificity, domain_inference) replacing four; each dimension carries one-sentence reasoning.
+- `--judge-model` for cross-provider judging; defaults to `--model` for backward compatibility.
+- `--sample N` round-robin sampling: sorted within schema, interleaved across sorted schemas, deterministic across runs.
+- `--output PATH` writes a versioned JSON artifact (schema_version=1) with run timestamp, generator + judge model, prompt hash, metrics, per-table reasoning.
+- SHA-256 prompt hash over `SYSTEM_PROMPT + inspect.getsource(build_table_prompt)`; envelope details (max_tokens, model) deliberately excluded.
+- `total_judge_failures` fuses provider + parse errors; CLI exits 1 only when all tables failed.
+- `evaluate_descriptions(tables=...)` iterates the argument list in order; CLI computes the list once and passes it through, so artifact and execution agree.
+- `_compact_samples` strips all-null columns from sample JSON; wide-table brevity guidance at 30+ columns.
+- `LLMConfig.max_tokens` default 4096 → 16384 to support 100+ column tables (CMS carrier needs ~11K output tokens).
+- Six fixtures span clean / abbreviated / synthetic / multi-schema / domain-specific / wide-claims patterns; regression net, not a survey.
+- Schema-anchoring guidance added to `SYSTEM_PROMPT`; pays off on niche-domain DBs (chembl, lahman) but introduces a verbosity regression on sparse-schema DBs (FAERS rpsr). Trade-off documented in archived design.md.
+- D8 (judge sees schema + description only, no row samples) preserved; reaffirmed by the FAERS finding — giving the judge samples is the correct revisit trigger if sparse-schema regressions become endemic.
+
+---
