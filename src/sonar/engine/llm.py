@@ -10,7 +10,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class LLMConfig:
     model: str = "anthropic/claude-haiku-4-5-20251001"
-    max_tokens: int = 4096
+    max_tokens: int = 16384
     max_concurrent_calls: int = 5
     base_url: str | None = None
 

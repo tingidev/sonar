@@ -161,6 +161,37 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="LLM model for description evaluation (e.g. anthropic/claude-haiku-4-5-20251001)",
     )
+    eval_parser.add_argument(
+        "--judge-model",
+        dest="judge_model",
+        default=None,
+        help=(
+            "Judge model for --descriptions (defaults to --model). Use to "
+            "score with a different provider than the generator. Note: when "
+            "--base-url is set (e.g. for Ollama), it is inherited by the "
+            "judge client; if the judge model is hosted elsewhere, unset or "
+            "override --base-url accordingly."
+        ),
+    )
+    eval_parser.add_argument(
+        "--sample",
+        dest="sample",
+        type=int,
+        default=None,
+        help=(
+            "For --descriptions: evaluate only N tables, selected by "
+            "round-robin across schemas. Default: all describable tables."
+        ),
+    )
+    eval_parser.add_argument(
+        "--output",
+        dest="output_path",
+        default=None,
+        help=(
+            "For --descriptions: write a versioned JSON eval artifact to "
+            "this path (run metadata, scores, reasoning, prompt hash)."
+        ),
+    )
     mode_group = eval_parser.add_mutually_exclusive_group()
     mode_group.add_argument(
         "--relationships",
@@ -377,7 +408,14 @@ def _run_eval(args: argparse.Namespace) -> int:
     if args.diff_other is not None:
         return _run_eval_diff(bundle_dir, Path(args.diff_other), args.json_output)
     if args.descriptions_mode:
-        return _run_eval_descriptions(bundle_dir, args.json_output, model=args.model)
+        return _run_eval_descriptions(
+            bundle_dir,
+            args.json_output,
+            model=args.model,
+            judge_model=args.judge_model,
+            sample=args.sample,
+            output_path=args.output_path,
+        )
     return _run_eval_quality(bundle_dir, args.json_output)
 
 
@@ -490,7 +528,16 @@ def _run_eval_diff(bundle_dir: Path, other_dir: Path, json_output: bool) -> int:
     return 0
 
 
-def _run_eval_descriptions(bundle_dir: Path, json_output: bool, *, model: str | None = None) -> int:
+def _run_eval_descriptions(
+    bundle_dir: Path,
+    json_output: bool,
+    *,
+    model: str | None = None,
+    judge_model: str | None = None,
+    sample: int | None = None,
+    output_path: str | None = None,
+) -> int:
+    from sonar.eval._artifact import build_artifact, select_sample_tables, write_artifact
     from sonar.eval._report import (
         format_descriptions_human,
         format_descriptions_json,
@@ -501,10 +548,26 @@ def _run_eval_descriptions(bundle_dir: Path, json_output: bool, *, model: str | 
     if bundle is None:
         return 1
 
-    config = LLMConfig(model=model) if model else LLMConfig()
-    client = create_llm_client(config)
+    generator_config = LLMConfig(model=model) if model else LLMConfig()
+    if judge_model:
+        judge_config = LLMConfig(
+            model=judge_model,
+            max_tokens=generator_config.max_tokens,
+            max_concurrent_calls=generator_config.max_concurrent_calls,
+            base_url=generator_config.base_url,
+        )
+    else:
+        judge_config = generator_config
+    judge_client = create_llm_client(judge_config)
+
+    evaluated_tables = select_sample_tables(bundle, sample)
+
     try:
-        report = asyncio.run(evaluate_descriptions(bundle, client, config=config))
+        report = asyncio.run(
+            evaluate_descriptions(
+                bundle, judge_client, config=judge_config, tables=evaluated_tables
+            )
+        )
     except Exception as exc:  # noqa: BLE001 - CLI boundary
         print(f"eval failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
@@ -514,9 +577,20 @@ def _run_eval_descriptions(bundle_dir: Path, json_output: bool, *, model: str | 
     else:
         print(format_descriptions_human(report, str(bundle_dir)))
 
-    if report.scored_count == 0 and report.judge_failures > 0:
+    if output_path is not None:
+        artifact = build_artifact(
+            bundle_dir=str(bundle_dir),
+            report=report,
+            generator_model=model,
+            judge_model=judge_config.model,
+            evaluated_tables=evaluated_tables,
+        )
+        write_artifact(Path(output_path), artifact)
+
+    if report.scored_count == 0 and report.total_judge_failures > 0:
         print(
-            f"eval: judge failed on all {report.judge_failures} tables; " "no scores produced",
+            f"eval: judge failed on all {report.total_judge_failures} tables; "
+            "no scores produced",
             file=sys.stderr,
         )
         return 1

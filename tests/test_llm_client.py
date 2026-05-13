@@ -19,7 +19,7 @@ class TestLLMConfig:
     def test_defaults(self) -> None:
         config = LLMConfig()
         assert config.model == "anthropic/claude-haiku-4-5-20251001"
-        assert config.max_tokens == 4096
+        assert config.max_tokens == 16384
         assert config.max_concurrent_calls == 5
 
     def test_frozen(self) -> None:

@@ -248,10 +248,10 @@ class TestEvalDescriptionsCli:
             return DescriptionQualityReport(
                 scored_count=0,
                 skipped_null=0,
-                judge_failures=2,
+                total_judge_failures=2,
                 mean_accuracy=0.0,
-                mean_completeness=0.0,
                 mean_specificity=0.0,
+                mean_domain_inference=0.0,
                 flagged=(),
                 per_table=(),
             )
@@ -262,6 +262,194 @@ class TestEvalDescriptionsCli:
         assert exit_code == 1
         err = capsys.readouterr().err
         assert "judge failed on all 2 tables" in err
+
+
+class TestEvalDescriptionsCliFlags:
+    """Coverage for --judge-model, --sample, --output, prompt hash stability."""
+
+    def _stub_evaluate(self, monkeypatch: pytest.MonkeyPatch) -> dict:
+        """Replace `evaluate_descriptions` with a stub that records its kwargs
+        and returns a deterministic report. Returns the captured-state dict."""
+        import sonar.cli as cli_mod
+        import sonar.eval.descriptions as descriptions_mod
+        from sonar.eval.descriptions import (
+            DescriptionQualityReport,
+            TableScore,
+        )
+
+        captured: dict = {}
+
+        async def _stub(bundle, llm_client, *, config=None, tables=None):
+            captured["config_model"] = getattr(config, "model", None)
+            captured["tables"] = tables
+            scored = (
+                TableScore(
+                    "public", "users", 4, 4, 4,
+                    "matches", "concrete", "auth domain",
+                ),
+            )
+            return DescriptionQualityReport(
+                scored_count=1,
+                skipped_null=0,
+                total_judge_failures=0,
+                mean_accuracy=4.0,
+                mean_specificity=4.0,
+                mean_domain_inference=4.0,
+                flagged=(),
+                per_table=scored,
+            )
+
+        # `_run_eval_descriptions` does a local import of `evaluate_descriptions`,
+        # so we have to patch the source module.
+        monkeypatch.setattr(descriptions_mod, "evaluate_descriptions", _stub)
+        monkeypatch.setattr(cli_mod, "create_llm_client", lambda config: object())
+        return captured
+
+    def test_judge_model_routes_through_separate_client(
+        self,
+        bundle_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import sonar.cli as cli_mod
+        from sonar.engine.llm import LLMConfig
+
+        captured = self._stub_evaluate(monkeypatch)
+        configs_seen: list[LLMConfig] = []
+
+        def _fake_create(config: LLMConfig) -> object:
+            configs_seen.append(config)
+            return object()
+
+        monkeypatch.setattr(cli_mod, "create_llm_client", _fake_create)
+
+        exit_code = main(
+            [
+                "eval",
+                "--bundle-dir",
+                str(bundle_dir),
+                "--descriptions",
+                "--model",
+                "anthropic/claude-haiku-4-5-20251001",
+                "--judge-model",
+                "gpt-4o",
+            ]
+        )
+        assert exit_code == 0
+        # Judge client created from --judge-model; the eval pipeline only uses
+        # the judge client (the generator is whatever wrote the bundle).
+        assert len(configs_seen) == 1
+        assert configs_seen[0].model == "gpt-4o"
+        assert captured["config_model"] == "gpt-4o"
+
+    def test_judge_model_defaults_to_model(
+        self,
+        bundle_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import sonar.cli as cli_mod
+        from sonar.engine.llm import LLMConfig
+
+        self._stub_evaluate(monkeypatch)
+        configs_seen: list[LLMConfig] = []
+        monkeypatch.setattr(
+            cli_mod, "create_llm_client", lambda c: (configs_seen.append(c), object())[1]
+        )
+
+        exit_code = main(
+            [
+                "eval",
+                "--bundle-dir",
+                str(bundle_dir),
+                "--descriptions",
+                "--model",
+                "anthropic/claude-haiku-4-5-20251001",
+            ]
+        )
+        assert exit_code == 0
+        assert configs_seen[0].model == "anthropic/claude-haiku-4-5-20251001"
+
+    def test_sample_size_passed_to_evaluator(
+        self,
+        bundle_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        captured = self._stub_evaluate(monkeypatch)
+        exit_code = main(
+            [
+                "eval",
+                "--bundle-dir",
+                str(bundle_dir),
+                "--descriptions",
+                "--sample",
+                "1",
+            ]
+        )
+        assert exit_code == 0
+        tables = captured["tables"]
+        assert tables is not None
+        assert len(tables) == 1
+
+    def test_output_writes_versioned_artifact(
+        self,
+        bundle_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        self._stub_evaluate(monkeypatch)
+        out_path = tmp_path / "run-001.json"
+        exit_code = main(
+            [
+                "eval",
+                "--bundle-dir",
+                str(bundle_dir),
+                "--descriptions",
+                "--output",
+                str(out_path),
+            ]
+        )
+        assert exit_code == 0
+        assert out_path.exists()
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+        assert payload["schema_version"] == 1
+        assert "run_timestamp" in payload
+        assert "prompt_version_hash" in payload
+        assert len(payload["prompt_version_hash"]) == 64
+        assert payload["metrics"]["scored_count"] == 1
+        per_table = payload["per_table"]
+        assert per_table[0]["accuracy_reasoning"] == "matches"
+        assert payload["evaluated_tables"]  # non-empty
+
+    def test_no_output_means_no_artifact(
+        self,
+        bundle_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        self._stub_evaluate(monkeypatch)
+        exit_code = main(
+            [
+                "eval",
+                "--bundle-dir",
+                str(bundle_dir),
+                "--descriptions",
+            ]
+        )
+        assert exit_code == 0
+        # No file written anywhere on disk (the tmp_path is unused).
+        assert list(tmp_path.glob("*.json")) == []
+
+    def test_prompt_hash_stable_across_calls(self) -> None:
+        from sonar.eval._artifact import prompt_version_hash
+
+        first = prompt_version_hash()
+        second = prompt_version_hash()
+        assert first == second
+        assert len(first) == 64
 
 
 class TestEvalModeMutuallyExclusive:

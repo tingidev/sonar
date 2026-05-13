@@ -387,24 +387,24 @@ def format_descriptions_human(report: DescriptionQualityReport, bundle_dir: str)
     lines.append(
         f"Scored: {report.scored_count}  "
         f"Skipped (null): {report.skipped_null}  "
-        f"Judge failures: {report.judge_failures}"
+        f"Judge failures: {report.total_judge_failures}"
     )
     if report.scored_count > 0:
         lines.append(
             f"Mean accuracy: {report.mean_accuracy:.2f}  "
-            f"Mean completeness: {report.mean_completeness:.2f}  "
-            f"Mean specificity: {report.mean_specificity:.2f}"
+            f"Mean specificity: {report.mean_specificity:.2f}  "
+            f"Mean domain inference: {report.mean_domain_inference:.2f}"
         )
     if report.flagged:
         lines.append("")
-        lines.append(f"Flagged tables ({len(report.flagged)}, any dimension < 0.5):")
+        lines.append(f"Flagged tables ({len(report.flagged)}, any dimension < 3):")
         for s in report.flagged:
             lines.append(_score_line(s))
 
     lines.append("")
     lines.append(
-        "Note: same-model judge — use for relative comparison between runs, "
-        "not absolute quality."
+        "Note: scores are 1-5 integers. Use --judge-model to score with a "
+        "cross-provider judge and --output to capture per-dimension reasoning."
     )
     return "\n".join(lines)
 
@@ -413,10 +413,10 @@ def format_descriptions_json(report: DescriptionQualityReport, bundle_dir: str) 
     metrics = {
         "scored_count": report.scored_count,
         "skipped_null": report.skipped_null,
-        "judge_failures": report.judge_failures,
+        "total_judge_failures": report.total_judge_failures,
         "mean_accuracy": report.mean_accuracy,
-        "mean_completeness": report.mean_completeness,
         "mean_specificity": report.mean_specificity,
+        "mean_domain_inference": report.mean_domain_inference,
     }
     details = {
         "flagged": [_score_dict(s) for s in report.flagged],
@@ -428,9 +428,9 @@ def format_descriptions_json(report: DescriptionQualityReport, bundle_dir: str) 
 def _score_line(s: TableScore) -> str:
     return (
         f"  {s.schema}.{s.name}: "
-        f"acc={s.accuracy:.2f}  "
-        f"comp={s.completeness:.2f}  "
-        f"spec={s.specificity:.2f}"
+        f"acc={s.accuracy}  "
+        f"spec={s.specificity}  "
+        f"domain={s.domain_inference}"
     )
 
 
@@ -439,8 +439,11 @@ def _score_dict(s: TableScore) -> dict[str, Any]:
         "schema": s.schema,
         "name": s.name,
         "accuracy": s.accuracy,
-        "completeness": s.completeness,
         "specificity": s.specificity,
+        "domain_inference": s.domain_inference,
+        "accuracy_reasoning": s.accuracy_reasoning,
+        "specificity_reasoning": s.specificity_reasoning,
+        "domain_inference_reasoning": s.domain_inference_reasoning,
     }
 
 

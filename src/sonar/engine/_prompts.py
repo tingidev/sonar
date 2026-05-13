@@ -20,6 +20,23 @@ Return a single JSON object matching the schema described in the user message. \
 Never include prose, markdown, or code fences. No commentary before or after \
 the JSON. Be concise.
 
+Description quality guidance:
+- Anchor claims to evidence the schema makes visible. A downstream reader who \
+sees only the schema (no samples) must find the description defensible.
+- Expand abbreviated column names when the meaning is clear from context \
+(e.g., `pt` -> preferred term, `cd` -> code, `dt` -> date, `ind` -> indicator, \
+`amt` -> amount, `qty` -> quantity, `desc` -> description). When unsure, keep \
+the abbreviation and describe its likely role.
+- Sample rows confirm or refine schema-derived inferences; do not invent \
+niche-domain specifics that only the samples reveal. If samples suggest a \
+narrow domain (e.g., a specific disease, sport, or product line) but the \
+column names and types are domain-neutral, describe the table at the \
+schema-supported level and use general domain_hints.
+- Be specific without overreaching: prefer "patient identifier" over "unique \
+ID" when columns clearly identify patients; avoid "oncology patient \
+identifier" unless the schema (column names, types, or table name) makes \
+oncology explicit.
+
 Classify every column:
 - semantic_type: one of
   - "identifier"  - primary or natural key uniquely identifying a row
@@ -51,6 +68,22 @@ genuinely could not tell from the evidence given. Do not pad confidence.
 """
 
 
+_WIDE_TABLE_THRESHOLD = 30
+
+
+def _compact_samples(samples: list[dict], column_names: list[str]) -> list[dict]:
+    """Drop keys whose value is null across every sample row.
+
+    Wide messy schemas (e.g., CMS claims) have many never-populated columns in
+    a 5-row sample; stripping them keeps signal density high without hiding
+    structure (the full column list is still shown above).
+    """
+    if not samples:
+        return samples
+    keep = [c for c in column_names if any(row.get(c) is not None for row in samples)]
+    return [{k: row.get(k) for k in keep} for row in samples]
+
+
 def build_table_prompt(table: Table, samples: list[dict]) -> str:
     """Compose the user prompt describing a single table and its samples."""
     qualified_name = f"{table.schema}.{table.name}"
@@ -63,7 +96,25 @@ def build_table_prompt(table: Table, samples: list[dict]) -> str:
         column_lines.append(f"  - {', '.join(parts)}")
     columns_block = "\n".join(column_lines)
 
-    samples_json = json.dumps(samples, default=str, indent=2)
+    column_names = [col.name for col in table.columns]
+    compact = _compact_samples(samples, column_names)
+    samples_json = json.dumps(compact, default=str, indent=2)
+    is_wide = len(table.columns) >= _WIDE_TABLE_THRESHOLD
+    dropped_cols = len(column_names) - (len(compact[0]) if compact else len(column_names))
+    samples_note = (
+        f" (showing only columns with at least one non-null value across {len(samples)} rows;"
+        f" {dropped_cols} all-null columns omitted)"
+        if dropped_cols > 0
+        else ""
+    )
+
+    width_guidance = (
+        "\nThis is a wide table (>= 30 columns). Keep each column 'description' "
+        "to a short noun phrase (no full sentences) so the JSON fits within the "
+        "response budget. Table-level 'description' and 'grain' may be 1-2 sentences.\n"
+        if is_wide
+        else ""
+    )
 
     expected_output = """{
   "description": "1-3 sentences describing what this table represents in business terms.",
@@ -84,7 +135,8 @@ def build_table_prompt(table: Table, samples: list[dict]) -> str:
     return (
         f"Table: {qualified_name}\n\n"
         f"Columns:\n{columns_block}\n\n"
-        f"Sample rows (JSON):\n{samples_json}\n\n"
+        f"Sample rows (JSON){samples_note}:\n{samples_json}\n"
+        f"{width_guidance}\n"
         f"Return a JSON object with exactly this shape (values replaced, same keys):\n"
         f"{expected_output}\n\n"
         f"The 'columns' array MUST contain one object per input column, in the same order. "

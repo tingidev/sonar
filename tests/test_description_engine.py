@@ -707,3 +707,36 @@ def test_build_table_prompt_shape() -> None:
     assert "user_id: uuid, nullable=false, pk=true" in prompt
     assert "email: text, nullable=false, pk=false" in prompt
     assert "a@x.com" in prompt
+
+
+def test_build_table_prompt_narrow_table_has_no_width_guidance() -> None:
+    table = _users_table()
+    prompt = build_table_prompt(table, _users_samples())
+    assert "wide table" not in prompt.lower()
+    assert "all-null columns omitted" not in prompt
+
+
+def test_build_table_prompt_wide_table_includes_brevity_guidance() -> None:
+    columns = tuple(
+        Column(name=f"c{i}", data_type="text", nullable=True, is_primary_key=False)
+        for i in range(35)
+    )
+    table = Table(schema="public", name="wide", columns=columns)
+    samples = [{f"c{i}": f"v{i}" for i in range(35)}]
+    prompt = build_table_prompt(table, samples)
+    assert "wide table" in prompt.lower()
+    assert "short noun phrase" in prompt
+
+
+def test_build_table_prompt_drops_all_null_sample_columns() -> None:
+    columns = (
+        Column(name="kept", data_type="text", nullable=True, is_primary_key=False),
+        Column(name="all_null", data_type="text", nullable=True, is_primary_key=False),
+    )
+    table = Table(schema="public", name="t", columns=columns)
+    samples = [{"kept": "v1", "all_null": None}, {"kept": "v2", "all_null": None}]
+    prompt = build_table_prompt(table, samples)
+    assert "all_null" not in prompt.split("Sample rows", 1)[1]
+    assert "all-null columns omitted" in prompt
+    assert "  - kept: text" in prompt
+    assert "  - all_null: text" in prompt

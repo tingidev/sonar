@@ -245,32 +245,46 @@ class TestDescriptionsFormatters:
         return DescriptionQualityReport(
             scored_count=2,
             skipped_null=1,
-            judge_failures=0,
-            mean_accuracy=0.85,
-            mean_completeness=0.78,
-            mean_specificity=0.72,
-            flagged=(TableScore("public", "weak", 0.4, 0.7, 0.5),),
+            total_judge_failures=0,
+            mean_accuracy=4.5,
+            mean_specificity=3.5,
+            mean_domain_inference=4.0,
+            flagged=(
+                TableScore(
+                    "public", "weak", 2, 4, 3,
+                    "claims unsupported", "vague but ok", "domain reasonable",
+                ),
+            ),
             per_table=(
-                TableScore("public", "strong", 0.95, 0.9, 0.92),
-                TableScore("public", "weak", 0.4, 0.7, 0.5),
+                TableScore(
+                    "public", "strong", 5, 4, 5,
+                    "matches schema", "concrete", "domain clear",
+                ),
+                TableScore(
+                    "public", "weak", 2, 4, 3,
+                    "claims unsupported", "vague but ok", "domain reasonable",
+                ),
             ),
         )
 
     def test_human_includes_means_and_flagged(self) -> None:
         text = format_descriptions_human(self._report(), ".sonar/")
         assert "Scored: 2" in text
-        assert "Mean accuracy: 0.85" in text
+        assert "Mean accuracy: 4.50" in text
+        assert "Mean specificity: 3.50" in text
+        assert "Mean domain inference: 4.00" in text
         assert "Flagged tables (1" in text
+        assert "any dimension < 3" in text
         assert "public.weak" in text
 
     def test_human_no_flagged_when_empty(self) -> None:
         report = DescriptionQualityReport(
             scored_count=0,
             skipped_null=0,
-            judge_failures=2,
+            total_judge_failures=2,
             mean_accuracy=0.0,
-            mean_completeness=0.0,
             mean_specificity=0.0,
+            mean_domain_inference=0.0,
             flagged=(),
             per_table=(),
         )
@@ -283,5 +297,9 @@ class TestDescriptionsFormatters:
         payload = json.loads(out)
         assert payload["mode"] == "descriptions"
         assert payload["metrics"]["scored_count"] == 2
+        assert payload["metrics"]["mean_domain_inference"] == 4.0
         assert len(payload["details"]["per_table"]) == 2
         assert len(payload["details"]["flagged"]) == 1
+        flagged = payload["details"]["flagged"][0]
+        assert flagged["accuracy"] == 2
+        assert flagged["accuracy_reasoning"] == "claims unsupported"
