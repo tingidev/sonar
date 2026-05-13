@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "run_timestamp": "2026-05-12T10:05:53Z",
+  "bundle_dir": ".sonar-tpcds",
+  "generator_model": null,
+  "judge_model": "gpt-4o",
+  "prompt_version_hash": "e1d17df4f535b10a1a7e0d8f95ed60efe1f17244aaca647df3c24c149eaa0e47",
+  "metrics": {
+    "scored_count": 10,
+    "skipped_null": 0,
+    "judge_failures": 0,
+    "mean_accuracy": 5.0,
+    "mean_specificity": 4.7,
+    "mean_domain_inference": 4.8,
+    "flagged_count": 0
+  },
+  "evaluated_tables": [
+    "public.call_center",
+    "public.catalog_page",
+    "public.catalog_returns",
+    "public.catalog_sales",
+    "public.customer",
+    "public.customer_address",
+    "public.customer_demographics",
+    "public.date_dim",
+    "public.dbgen_version",
+    "public.household_demographics"
+  ],
+  "per_table": [
+    {
+      "schema": "public",
+      "name": "call_center",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema by detailing the purpose and structure of the call center table as a fact table capturing various attributes.",
+      "specificity_reasoning": "The description provides specific details about organizational levels and call center attributes, which distinguishes it from other tables.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as call center operations and uses appropriate terminology related to organizational hierarchy and operations."
+    },
+    {
+      "schema": "public",
+      "name": "catalog_page",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 4,
+      "accuracy_reasoning": "The description accurately reflects the schema, using column names and potential use cases to match the representation of catalog pages.",
+      "specificity_reasoning": "The description provides detailed information about catalog pages, such as publication lifecycle and structure, distinguishing it clearly from other tables.",
+      "domain_inference_reasoning": "The identified domain of catalogs fits well with e-commerce and retail, but could be strengthened with more emphasis on printed versus digital catalogs."
+    },
+    {
+      "schema": "public",
+      "name": "catalog_returns",
+      "accuracy": 5,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema by identifying the function of each column and the relationships between columns, such as the return processes and financial impacts.",
+      "specificity_reasoning": "The description provides detailed insights, such as distinguishing returned and refunded customer attributes and breaking down financial impacts, but could be more precise about the use context.",
+      "domain_inference_reasoning": "The description correctly infers that the table pertains to e-commerce catalog returns processed via call centers, using appropriate terminology for its domain."
+    },
+    {
+      "schema": "public",
+      "name": "catalog_sales",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately captures the catalog sales data structure, including customer, shipping, and financial metrics.",
+      "specificity_reasoning": "The description provides detailed insights into the purpose of each column and distinguishes the table as specific to catalog sales analysis.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as e-commerce or retail, with appropriate terminology for catalog sales."
+    },
+    {
+      "schema": "public",
+      "name": "customer",
+      "accuracy": 5,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema by identifying key attributes and their roles, such as surrogate key, natural ID, and foreign keys.",
+      "specificity_reasoning": "The description provides details such as demographics and lifecycle dates, but could include more on how these elements are used or interact.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as retail or e-commerce, appropriate given the customer data and related attributes."
+    },
+    {
+      "schema": "public",
+      "name": "customer_address",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 4,
+      "accuracy_reasoning": "The description accurately reflects the schema showing postal address components and additional geographic information.",
+      "specificity_reasoning": "The description provides detailed information on each column, such as the components of a postal address and GMT offset, which distinguishes it from other tables.",
+      "domain_inference_reasoning": "The description infers the domain well by identifying it as related to e-commerce, retail, and data warehousing, though other domains could use similar tables."
+    },
+    {
+      "schema": "public",
+      "name": "customer_demographics",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, including column types and their uses.",
+      "specificity_reasoning": "The description provides detailed explanations for each column, adding context for how these might be used.",
+      "domain_inference_reasoning": "It correctly identifies the domain as customer analytics within contexts like retail and e-commerce."
+    },
+    {
+      "schema": "public",
+      "name": "date_dim",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the table's schema, detailing its use for temporal attributes and reporting.",
+      "specificity_reasoning": "The description provides detailed information on each column, including its purpose and data type, making it highly specific.",
+      "domain_inference_reasoning": "The description correctly identifies the table's domain as related to data warehousing and business intelligence, using appropriate terminology throughout."
+    },
+    {
+      "schema": "public",
+      "name": "dbgen_version",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema showing version, creation date, time, and command-line arguments.",
+      "specificity_reasoning": "The description provides specific details on each column's role in tracking dbgen execution, which distinguishes it from generic tables.",
+      "domain_inference_reasoning": "The description correctly identifies the table's domain as related to the TPC-DS benchmark data generator."
+    },
+    {
+      "schema": "public",
+      "name": "household_demographics",
+      "accuracy": 5,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema with details on household demographics such as income band, buy potential, and counts of dependents and vehicles.",
+      "specificity_reasoning": "The description provides useful detail on the table's purpose and the meaning of columns, though 'hd_buy_potential' could be specified more clearly.",
+      "domain_inference_reasoning": "The description correctly identifies the domain of retail analytics and customer segmentation using appropriate terminology."
+    }
+  ]
+}

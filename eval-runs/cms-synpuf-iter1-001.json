@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "run_timestamp": "2026-05-12T10:05:55Z",
+  "bundle_dir": ".sonar-cms-synpuf",
+  "generator_model": null,
+  "judge_model": "gpt-4o",
+  "prompt_version_hash": "e1d17df4f535b10a1a7e0d8f95ed60efe1f17244aaca647df3c24c149eaa0e47",
+  "metrics": {
+    "scored_count": 4,
+    "skipped_null": 0,
+    "judge_failures": 0,
+    "mean_accuracy": 4.75,
+    "mean_specificity": 5.0,
+    "mean_domain_inference": 5.0,
+    "flagged_count": 0
+  },
+  "evaluated_tables": [
+    "main.beneficiary",
+    "main.inpatient",
+    "main.outpatient",
+    "main.pde"
+  ],
+  "per_table": [
+    {
+      "schema": "main",
+      "name": "beneficiary",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, indicating Medicare beneficiaries' annual details including insurance coverage, demographics, chronic conditions, and medical reimbursements.",
+      "specificity_reasoning": "The description provides detailed specifics including context about Medicare, specific types of coverage, and diagnostics codes, which differentiates this table from others.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as Medicare-related healthcare, using appropriate terms like CMS, insurance coverage, and chronic conditions."
+    },
+    {
+      "schema": "main",
+      "name": "inpatient",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, as it correctly highlights the table's focus on Medicare inpatient hospital claims, including details on admission, discharge, diagnosis, procedures, and payments as evidenced by column names.",
+      "specificity_reasoning": "The description provides specific details about the types of data captured (e.g., admission dates, diagnosis codes, payment amounts), making it highly informative and clearly distinguishing this table from others.",
+      "domain_inference_reasoning": "The description appropriately identifies the domain as healthcare, specifically referencing Medicare and the CMS DE-SynPUF dataset, which aligns with the schema's focus on hospital claims data."
+    },
+    {
+      "schema": "main",
+      "name": "outpatient",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description correctly identifies the table as containing Medicare outpatient claim records, references appropriate columns for diagnoses, procedures, provider codes, and payment amounts.",
+      "specificity_reasoning": "The description provides detailed explanations of columns, including the purpose of segments and distinguishing between types of identifiers and payment details, which adds specific insight into the dataset.",
+      "domain_inference_reasoning": "The domain is correctly identified as healthcare, specifically focusing on Medicare claims for outpatient services, using appropriate terminology from that domain."
+    },
+    {
+      "schema": "main",
+      "name": "pde",
+      "accuracy": 4,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the column names and suggests a healthcare domain, but the columns are all nullable, which might mean they aren't always required.",
+      "specificity_reasoning": "The description provides detailed information about the roles of each column, distinguishing it as a table for prescription events and matching each column to a described real-world concept.",
+      "domain_inference_reasoning": "The description correctly identifies the healthcare domain and uses appropriate terminology related to Medicare and prescriptions."
+    }
+  ]
+}

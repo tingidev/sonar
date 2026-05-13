@@ -34,5 +34,81 @@ services:
       retries: 30
       start_period: 300s
 
+  faers:
+    build: ./tests/fixtures/faers
+    container_name: sonar-faers
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+    ports:
+      - "5435:5432"
+    volumes:
+      - faers-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d faers"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 300s
+
+  tpcds:
+    build: ./tests/fixtures/tpcds
+    container_name: sonar-tpcds
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+    ports:
+      - "5436:5432"
+    volumes:
+      - tpcds-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d tpcds"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  adventureworks:
+    build: ./tests/fixtures/adventureworks
+    container_name: sonar-adventureworks
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+    ports:
+      - "5437:5432"
+    volumes:
+      - adventureworks-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d adventureworks"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
+  lahman:
+    build: ./tests/fixtures/lahman
+    container_name: sonar-lahman
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+    ports:
+      - "5438:5432"
+    volumes:
+      - lahman-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d lahman"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
 volumes:
   chembl-data:
+  faers-data:
+  tpcds-data:
+  adventureworks-data:
+  lahman-data:

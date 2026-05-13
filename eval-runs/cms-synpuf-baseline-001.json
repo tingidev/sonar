@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "run_timestamp": "2026-05-12T09:43:17Z",
+  "bundle_dir": ".sonar-cms-synpuf",
+  "generator_model": null,
+  "judge_model": "gpt-4o",
+  "prompt_version_hash": "7687337fab604ebb3acb414808c9333caeb1bbe6e8eaa880fe473625eda1251c",
+  "metrics": {
+    "scored_count": 2,
+    "skipped_null": 0,
+    "judge_failures": 0,
+    "mean_accuracy": 4.5,
+    "mean_specificity": 5.0,
+    "mean_domain_inference": 5.0,
+    "flagged_count": 0
+  },
+  "evaluated_tables": [
+    "main.beneficiary",
+    "main.pde"
+  ],
+  "per_table": [
+    {
+      "schema": "main",
+      "name": "beneficiary",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema with correct details on enrollment, claims data, and coding.",
+      "specificity_reasoning": "The description provides detailed information that differentiates the table, including specific medical and insurance terms.",
+      "domain_inference_reasoning": "The description correctly identifies the table's domain as Medicare and uses appropriate healthcare and insurance terminology."
+    },
+    {
+      "schema": "main",
+      "name": "pde",
+      "accuracy": 4,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description generally aligns with the schema but assumes a Medicare context not explicitly stated in the schema.",
+      "specificity_reasoning": "The description provides detailed information about column roles and interprets abbreviations, which differentiates this table from similar ones.",
+      "domain_inference_reasoning": "The domain inference accurately identifies relevant domains like healthcare and pharmacy, which are consistent with the schema."
+    }
+  ]
+}

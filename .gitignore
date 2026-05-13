@@ -28,5 +28,14 @@ htmlcov/
 .DS_Store
 
 .claude/session-state.md
+.claude/settings.local.json
 WORKLOG.md
 .mcp.json
+
+eval-runs/logs/
+eval-runs/_*.py
+
+tests/fixtures/cms-synpuf/*.zip
+tests/fixtures/cms-synpuf/*.csv
+tests/fixtures/cms-synpuf/*.duckdb
+tests/fixtures/cms-synpuf/*.duckdb.wal

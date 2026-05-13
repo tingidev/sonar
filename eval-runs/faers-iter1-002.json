@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "run_timestamp": "2026-05-12T11:39:11Z",
+  "bundle_dir": ".sonar-faers",
+  "generator_model": null,
+  "judge_model": "gpt-4o",
+  "prompt_version_hash": "e1d17df4f535b10a1a7e0d8f95ed60efe1f17244aaca647df3c24c149eaa0e47",
+  "metrics": {
+    "scored_count": 7,
+    "skipped_null": 0,
+    "judge_failures": 0,
+    "mean_accuracy": 4.285714285714286,
+    "mean_specificity": 4.428571428571429,
+    "mean_domain_inference": 4.714285714285714,
+    "flagged_count": 0
+  },
+  "evaluated_tables": [
+    "public.demo",
+    "public.drug",
+    "public.indi",
+    "public.outc",
+    "public.reac",
+    "public.rpsr",
+    "public.ther"
+  ],
+  "per_table": [
+    {
+      "schema": "public",
+      "name": "demo",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description correctly reflects the schema by explaining the presence of identifiers, patient demographics, event dates, and manufacturer details.",
+      "specificity_reasoning": "The description provides specific insights into the role of each column in context, especially regarding regulatory and pharmacovigilance processes.",
+      "domain_inference_reasoning": "The description successfully captures the domain of pharmacovigilance, using terminology like adverse event reporting and FDA FAERS accurately."
+    },
+    {
+      "schema": "public",
+      "name": "drug",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, capturing key elements like drug identifiers, dosing details, and regulatory information.",
+      "specificity_reasoning": "The description provides detailed explanations of columns and their roles within adverse event reporting, distinguishing this table from others.",
+      "domain_inference_reasoning": "The description correctly identifies the domain of pharmacovigilance and uses appropriate terminology related to adverse event reporting."
+    },
+    {
+      "schema": "public",
+      "name": "indi",
+      "accuracy": 4,
+      "specificity": 4,
+      "domain_inference": 4,
+      "accuracy_reasoning": "The description accurately reflects the schema, linking 'caseid' and 'indi_pt' with medical indications and drug sequences, though it assumes clinical contexts not explicitly supported by the schema.",
+      "specificity_reasoning": "The description provides useful details about the purpose and relationship of columns like 'indi_drug_seq' and 'indi_pt', which helps to distinguish the table but lacks granularity about data specifics.",
+      "domain_inference_reasoning": "The domain hints toward pharmacovigilance are plausible given the schema, though there's an assumption of clinical contexts and adverse events not directly verifiable from the schema alone."
+    },
+    {
+      "schema": "public",
+      "name": "outc",
+      "accuracy": 4,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description aligns well with the schema structure, explaining the purpose of each column and their linkages, although it speculates slightly about the broader purpose without explicit schema support.",
+      "specificity_reasoning": "The description provides detailed information on each column and their potential meanings, which goes beyond merely restating column names.",
+      "domain_inference_reasoning": "The description accurately identifies the domain as adverse event reporting within a pharmacovigilance context, using appropriate terminology."
+    },
+    {
+      "schema": "public",
+      "name": "reac",
+      "accuracy": 4,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description aligns well with the schema but treats column names as identifiers when they are nullable, possibly indicating they are not globally unique.",
+      "specificity_reasoning": "The description adds context by stating the table records adverse reactions related to drug safety cases, though more elaboration could enhance distinction.",
+      "domain_inference_reasoning": "The domain inference is accurate and uses appropriate terminology for pharmacovigilance and drug safety."
+    },
+    {
+      "schema": "public",
+      "name": "rpsr",
+      "accuracy": 3,
+      "specificity": 4,
+      "domain_inference": 4,
+      "accuracy_reasoning": "The description aligns with column names but assumes functions not explicitly indicated in the schema.",
+      "specificity_reasoning": "Adds detail about column purposes and general table function without clear schema support for some claims.",
+      "domain_inference_reasoning": "Correctly infers likely healthcare or pharmacovigilance domain based on terminology like 'adverse events'."
+    },
+    {
+      "schema": "public",
+      "name": "ther",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, detailing the role of drug administration in adverse event cases.",
+      "specificity_reasoning": "The description provides detailed information about the tracking of drug therapies and positions within an adverse event case, distinguishing the table well.",
+      "domain_inference_reasoning": "The domain of pharmacovigilance and adverse event reporting is correctly identified with appropriate terminology."
+    }
+  ]
+}

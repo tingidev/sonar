@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "run_timestamp": "2026-05-12T10:05:56Z",
+  "bundle_dir": ".sonar-lahman",
+  "generator_model": null,
+  "judge_model": "gpt-4o",
+  "prompt_version_hash": "e1d17df4f535b10a1a7e0d8f95ed60efe1f17244aaca647df3c24c149eaa0e47",
+  "metrics": {
+    "scored_count": 10,
+    "skipped_null": 0,
+    "judge_failures": 0,
+    "mean_accuracy": 4.9,
+    "mean_specificity": 4.8,
+    "mean_domain_inference": 4.8,
+    "flagged_count": 0
+  },
+  "evaluated_tables": [
+    "public.allstarfull",
+    "public.appearances",
+    "public.awardsmanagers",
+    "public.awardsplayers",
+    "public.awardssharemanagers",
+    "public.awardsshareplayers",
+    "public.batting",
+    "public.battingpost",
+    "public.collegeplaying",
+    "public.fielding"
+  ],
+  "per_table": [
+    {
+      "schema": "public",
+      "name": "allstarfull",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description correctly reflects the schema, with column designations, types, and purposes accurately depicted.",
+      "specificity_reasoning": "The description provides detailed information on the table's purpose and significance of each column, such as the context of the All-Star Game and players' roles.",
+      "domain_inference_reasoning": "The description accurately identifies the domain of baseball and All-Star Games, using appropriate sports terminology."
+    },
+    {
+      "schema": "public",
+      "name": "appearances",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema by detailing the nature of game appearances and positional breakdowns for players, as shown by the column names and types.",
+      "specificity_reasoning": "The description provides detailed insights into player appearances and roles, offering specific breakdowns of positions and game roles, which distinguishes this table from others.",
+      "domain_inference_reasoning": "The description correctly identifies the table's domain as baseball and uses appropriate terminology related to player game appearances and positions."
+    },
+    {
+      "schema": "public",
+      "name": "awardsmanagers",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, addressing major baseball awards, league participation, and award specifics.",
+      "specificity_reasoning": "The description provides detailed explanations of each column, particularly clarifying the type of awards and league information.",
+      "domain_inference_reasoning": "The description correctly identifies the sports domain, specifically linking to baseball and awards."
+    },
+    {
+      "schema": "public",
+      "name": "awardsplayers",
+      "accuracy": 5,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description correctly reflects the schema by identifying it as a table for baseball awards linked to players, congruent with column names indicating player ID, award ID, year, league, ties, and notes.",
+      "specificity_reasoning": "The description provides some detail about the linkage of players to awards and hints at the sports domain, but it could specify more about how ties are recorded or the structure of notes.",
+      "domain_inference_reasoning": "The description accurately identifies the domain as baseball and uses appropriate terminology like 'league,' 'awards,' and 'players' to describe the table's context."
+    },
+    {
+      "schema": "public",
+      "name": "awardssharemanagers",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema by explaining the purpose of each column and noting their relevance to awards voting in baseball.",
+      "specificity_reasoning": "The description goes beyond restating column names by explaining the context of voting for managerial awards and specifying details like league and award name.",
+      "domain_inference_reasoning": "The description correctly identifies the context of baseball and uses terminology consistent with sports awards voting."
+    },
+    {
+      "schema": "public",
+      "name": "awardsshareplayers",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description aligns well with the schema, mentioning elements like player voting, years, and leagues as evident from the column names.",
+      "specificity_reasoning": "The description provides detailed information such as voting results, specific awards, and league contexts, offering clear distinctions from generic tables.",
+      "domain_inference_reasoning": "The description accurately infers the domain of baseball award voting and uses appropriate terminology like 'points', 'votes', and 'league'."
+    },
+    {
+      "schema": "public",
+      "name": "batting",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema by correctly detailing the function of each column.",
+      "specificity_reasoning": "The description provides detailed explanations for each column, distinguishing this table as specific to baseball batting statistics.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as baseball with the use of appropriate terminology such as 'batting statistics' and 'stint.'"
+    },
+    {
+      "schema": "public",
+      "name": "battingpost",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description correctly reflects the schema by accurately describing the columns and their purposes related to baseball postseason statistics.",
+      "specificity_reasoning": "The description provides detailed context, including postseason focus and links to specific baseball events, setting it apart from general batting statistics tables.",
+      "domain_inference_reasoning": "The description accurately identifies the domain as baseball, specifically treating it as a sports table with terminology like postseason and World Series, fitting the schema perfectly."
+    },
+    {
+      "schema": "public",
+      "name": "collegeplaying",
+      "accuracy": 4,
+      "specificity": 4,
+      "domain_inference": 3,
+      "accuracy_reasoning": "The description accurately reflects the schema, though it assumes enrollment or participation, which is not explicitly stated.",
+      "specificity_reasoning": "The description adds useful detail by explaining the nature of each column and specifying the grain of the data.",
+      "domain_inference_reasoning": "The domain hints at sports and college athletics are reasonable but not explicitly supported by all schema elements."
+    },
+    {
+      "schema": "public",
+      "name": "fielding",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, correctly identifying the table's focus on baseball fielding statistics and aligning with the column names and types.",
+      "specificity_reasoning": "The description provides detailed explanations for each column, highlighting unique aspects of baseball fielding statistics such as 'stint' and 'zone rating,' distinguishing it from other tables.",
+      "domain_inference_reasoning": "The table description accurately identifies the domain as baseball sports analytics, using appropriate terminology related to fielding statistics."
+    }
+  ]
+}

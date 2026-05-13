@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "run_timestamp": "2026-05-12T09:43:16Z",
+  "bundle_dir": ".sonar-chembl",
+  "generator_model": null,
+  "judge_model": "gpt-4o",
+  "prompt_version_hash": "7687337fab604ebb3acb414808c9333caeb1bbe6e8eaa880fe473625eda1251c",
+  "metrics": {
+    "scored_count": 10,
+    "skipped_null": 0,
+    "judge_failures": 0,
+    "mean_accuracy": 4.5,
+    "mean_specificity": 4.5,
+    "mean_domain_inference": 4.2,
+    "flagged_count": 1
+  },
+  "evaluated_tables": [
+    "public.action_type",
+    "public.activities",
+    "public.activity_properties",
+    "public.activity_smid",
+    "public.activity_stds_lookup",
+    "public.activity_supp",
+    "public.activity_supp_map",
+    "public.assay_class_map",
+    "public.assay_classification",
+    "public.assay_parameters"
+  ],
+  "per_table": [
+    {
+      "schema": "public",
+      "name": "action_type",
+      "accuracy": 4,
+      "specificity": 5,
+      "domain_inference": 4,
+      "accuracy_reasoning": "The description reflects the schema with a focus on action types and hierarchical classification, but assumes biochemical context without schema evidence.",
+      "specificity_reasoning": "The description provides detailed explanations about the role and hierarchy of action types, distinguishing it well from generic action type tables.",
+      "domain_inference_reasoning": "The inferred domain of pharmacology and biochemistry is plausible but not explicit in the schema, which could apply generally to other action classifications."
+    },
+    {
+      "schema": "public",
+      "name": "activities",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, capturing key elements like activity measurements, assays, and related identifiers.",
+      "specificity_reasoning": "The description provides detailed interpretations of each column, distinguishing the table by linking it specifically to ChEMBL and bioassay measurements.",
+      "domain_inference_reasoning": "The description effectively identifies the domain as pharmacology, incorporating relevant terminology such as bioassay, potency, and cheminformatics."
+    },
+    {
+      "schema": "public",
+      "name": "activity_properties",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema by associating attributes with laboratory or biomedical activities and detailing the use of raw and standardized data.",
+      "specificity_reasoning": "The description provides specific details about the purpose and structure of the table, including the association with laboratory activities and standardized values.",
+      "domain_inference_reasoning": "The description correctly infers the domain as laboratory, biomedical, and clinical data, which aligns well with the types of columns and their descriptions."
+    },
+    {
+      "schema": "public",
+      "name": "activity_smid",
+      "accuracy": 3,
+      "specificity": 3,
+      "domain_inference": 3,
+      "accuracy_reasoning": "The description accurately identifies the 'smid' as a surrogate key but assumes it represents activity records without evidence from the schema.",
+      "specificity_reasoning": "The description provides some detail about 'smid' being a unique identifier, but lacks specific information on what 'activity' entails.",
+      "domain_inference_reasoning": "The suggested domain hints at 'activity_tracking' without concrete evidence from the schema beyond the table name, which is somewhat speculative."
+    },
+    {
+      "schema": "public",
+      "name": "activity_stds_lookup",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema with details about standard types, definitions, units, and range values.",
+      "specificity_reasoning": "The description specifies that the table is used for activity assay types in pharmaceutical or biochemical research, highlighting details like IC50 and EC50.",
+      "domain_inference_reasoning": "The table's domain is correctly identified as pharmaceutical and biochemical research, using domain-specific terms like bioassay metrics."
+    },
+    {
+      "schema": "public",
+      "name": "activity_supp",
+      "accuracy": 3,
+      "specificity": 3,
+      "domain_inference": 2,
+      "accuracy_reasoning": "The description partially reflects the schema by mentioning samples and record identifiers, but assumptions about pathological deposits in liver tissue lack explicit schema support.",
+      "specificity_reasoning": "The description offers some specific elements like standard values, but the claim about liver tissue is unsubstantiated by the schema.",
+      "domain_inference_reasoning": "While 'pathology' and 'clinical assessment' are plausible given column names, there's no clear link to 'liver deposits' or 'biomedical research' from the schema alone."
+    },
+    {
+      "schema": "public",
+      "name": "activity_supp_map",
+      "accuracy": 5,
+      "specificity": 4,
+      "domain_inference": 4,
+      "accuracy_reasoning": "The description accurately reflects the schema with correct identification of column roles and table purpose.",
+      "specificity_reasoning": "The description adds detail by explaining the table's role as a mapping between activities and resources, but could be more specific about the nature of the resources.",
+      "domain_inference_reasoning": "The description correctly infers a domain related to resource mapping, though 'content management' and 'resource allocation' are somewhat broad."
+    },
+    {
+      "schema": "public",
+      "name": "assay_class_map",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 4,
+      "accuracy_reasoning": "The description correctly identifies the table as a junction table and accurately describes the roles of each column.",
+      "specificity_reasoning": "The description provides detailed insights into the purpose of the table and the columns, setting it apart from other potential tables.",
+      "domain_inference_reasoning": "The domain inference is mostly correct, identifying relevant fields like 'laboratory' and 'scientific research', though 'assay management' could be more specific to the actual usage context."
+    },
+    {
+      "schema": "public",
+      "name": "assay_classification",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema with details on hierarchy and unique identification of assay classifications.",
+      "specificity_reasoning": "The description includes specific details about the hierarchical levels and their roles, as well as the purpose of the table.",
+      "domain_inference_reasoning": "The description correctly identifies and uses appropriate terminology for the bioassay domain in pharmaceuticals and life sciences."
+    },
+    {
+      "schema": "public",
+      "name": "assay_parameters",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately explains the purpose of the table and the role of each column, correctly reflecting the schema.",
+      "specificity_reasoning": "The description offers detailed explanations for each column and provides a clear distinction about the function of standard values versus measured values.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as scientific assays and uses appropriate terminology such as 'parameter values,' 'standard/reference values,' and 'assay experiment.'"
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "run_timestamp": "2026-05-12T10:05:51Z",
+  "bundle_dir": ".sonar-faers",
+  "generator_model": null,
+  "judge_model": "gpt-4o",
+  "prompt_version_hash": "e1d17df4f535b10a1a7e0d8f95ed60efe1f17244aaca647df3c24c149eaa0e47",
+  "metrics": {
+    "scored_count": 7,
+    "skipped_null": 0,
+    "judge_failures": 0,
+    "mean_accuracy": 4.142857142857143,
+    "mean_specificity": 4.428571428571429,
+    "mean_domain_inference": 4.714285714285714,
+    "flagged_count": 0
+  },
+  "evaluated_tables": [
+    "public.demo",
+    "public.drug",
+    "public.indi",
+    "public.outc",
+    "public.reac",
+    "public.rpsr",
+    "public.ther"
+  ],
+  "per_table": [
+    {
+      "schema": "public",
+      "name": "demo",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, detailing the adverse event reports, including patient demographics, event timing, and manufacturer information.",
+      "specificity_reasoning": "The description provides detailed insights into columns, such as unique identifiers and codes, making it specific to adverse event reporting.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as pharmacovigilance and adverse event reporting, using appropriate regulatory terminology."
+    },
+    {
+      "schema": "public",
+      "name": "drug",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description and column details accurately reflect the schema, with correct references to drugs, dosing, and case identifiers.",
+      "specificity_reasoning": "The description provides detailed context about drug administration in adverse event reports, including regulatory and dosage information, which distinguishes this table.",
+      "domain_inference_reasoning": "The description correctly infers the domain as pharmacovigilance and uses appropriate terminology like 'adverse event' and 'FDA'."
+    },
+    {
+      "schema": "public",
+      "name": "indi",
+      "accuracy": 4,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description correctly ties the column names to indications and drugs but assumes linkages to clinical cases without explicit schema support.",
+      "specificity_reasoning": "The description provides detail on the purpose and relationships inferred from the column names but lacks definitive details about the primary key relationships.",
+      "domain_inference_reasoning": "The use of terms like 'indications' and 'pharmacovigilance' strongly suggests a pharmacological or medical domain, which aligns well with column names."
+    },
+    {
+      "schema": "public",
+      "name": "outc",
+      "accuracy": 4,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema but makes an unsupported claim about primaryid and caseid linking to adverse event reports.",
+      "specificity_reasoning": "The description provides detail about the purpose of each column and potential example values for outc_cod, adding specificity.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as pharmacovigilance and medical safety, supported by the column names and context."
+    },
+    {
+      "schema": "public",
+      "name": "reac",
+      "accuracy": 4,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema by relating columns to adverse reactions, case identification, and drug actions, though 'primaryid' and 'caseid' should be clearly differentiated.",
+      "specificity_reasoning": "The description provides additional detail about adverse reactions and drug safety context, but it could specify the linkage or structure of 'primaryid' and 'caseid' more clearly.",
+      "domain_inference_reasoning": "The description correctly identifies the domain of pharmacovigilance and uses appropriate terminology like 'adverse reactions' and 'drug safety'."
+    },
+    {
+      "schema": "public",
+      "name": "rpsr",
+      "accuracy": 3,
+      "specificity": 3,
+      "domain_inference": 4,
+      "accuracy_reasoning": "The description infers more detail about relationships and domain than the schema strictly supports but aligns with column names.",
+      "specificity_reasoning": "The description offers some direction but lacks concrete details like the specific meaning of 'rpsr_cod' without supporting examples.",
+      "domain_inference_reasoning": "The description makes a logical guess about its domain being related to adverse event reporting, which fits column contexts."
+    },
+    {
+      "schema": "public",
+      "name": "ther",
+      "accuracy": 4,
+      "specificity": 5,
+      "domain_inference": 4,
+      "accuracy_reasoning": "The description accurately reflects the schema, but there is no explicit indication in the schema of a clinical or pharmacovigilance context.",
+      "specificity_reasoning": "The description provides detailed context, including the relation to adverse event cases and usage within a reporting system, which is specific and distinguishes it from other tables.",
+      "domain_inference_reasoning": "The domain inference is solid and plausible, correctly pointing to pharmacovigilance and adverse event reporting, although the schema does not explicitly confirm this."
+    }
+  ]
+}

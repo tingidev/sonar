@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "run_timestamp": "2026-05-12T10:09:19Z",
+  "bundle_dir": ".sonar-cms-synpuf",
+  "generator_model": null,
+  "judge_model": "gpt-4o",
+  "prompt_version_hash": "e1d17df4f535b10a1a7e0d8f95ed60efe1f17244aaca647df3c24c149eaa0e47",
+  "metrics": {
+    "scored_count": 5,
+    "skipped_null": 0,
+    "judge_failures": 0,
+    "mean_accuracy": 5.0,
+    "mean_specificity": 4.6,
+    "mean_domain_inference": 5.0,
+    "flagged_count": 0
+  },
+  "evaluated_tables": [
+    "main.beneficiary",
+    "main.carrier",
+    "main.inpatient",
+    "main.outpatient",
+    "main.pde"
+  ],
+  "per_table": [
+    {
+      "schema": "main",
+      "name": "beneficiary",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, detailing the columns related to demographics, chronic conditions, and reimbursement amounts.",
+      "specificity_reasoning": "The description provides detailed information about each column including semantic type and pii risk, which helps differentiate this table.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as Medicare, using relevant healthcare terminology."
+    },
+    {
+      "schema": "main",
+      "name": "carrier",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, outlining key components like diagnosis and procedure codes, provider information, and payment details.",
+      "specificity_reasoning": "The description effectively distinguishes this table by mentioning 'Medicare carrier claims' and detailing multiple service lines and financial breakdowns.",
+      "domain_inference_reasoning": "The description correctly infers a healthcare and insurance domain, using appropriate terminology such as 'Medicare,' 'claims,' and 'ICD-9-CM codes.'"
+    },
+    {
+      "schema": "main",
+      "name": "inpatient",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, capturing columns related to Medicare inpatient claims, ICD-9 and HCPCS codes, dates, and financial details.",
+      "specificity_reasoning": "The description provides detailed information about the type of data, including specific column descriptions and their semantic roles, which sets it apart from generic claims data.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as healthcare and Medicare, using appropriate terminology like ICD-9, HCPCS, and claims."
+    },
+    {
+      "schema": "main",
+      "name": "outpatient",
+      "accuracy": 5,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the column names and types, using terms like 'outpatient claims' and 'diagnosis codes' which align with the schema elements such as 'ICD9_DGNS_CD' and 'CLM_ID'.",
+      "specificity_reasoning": "The description provides a detailed overview, distinguishing it as Medicare outpatient data with payment details, although more distinct attributes could be highlighted.",
+      "domain_inference_reasoning": "The description correctly identifies the healthcare and Medicare claims domain, using appropriate terminology such as 'CMS DE-SynPUF' and 'outpatient service encounters'."
+    },
+    {
+      "schema": "main",
+      "name": "pde",
+      "accuracy": 5,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, identifying relevant columns and their functions in a pharmacy dispensing context.",
+      "specificity_reasoning": "The description provides detailed information about pharmacy dispensing events but could include more about the exact structure or source of 'DESYNPUF' data.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as healthcare and appropriately uses terminology related to pharmacy claims and prescription management."
+    }
+  ]
+}

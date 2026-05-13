@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "run_timestamp": "2026-05-12T10:05:54Z",
+  "bundle_dir": ".sonar-adventureworks",
+  "generator_model": null,
+  "judge_model": "gpt-4o",
+  "prompt_version_hash": "e1d17df4f535b10a1a7e0d8f95ed60efe1f17244aaca647df3c24c149eaa0e47",
+  "metrics": {
+    "scored_count": 10,
+    "skipped_null": 0,
+    "judge_failures": 0,
+    "mean_accuracy": 4.9,
+    "mean_specificity": 4.5,
+    "mean_domain_inference": 5.0,
+    "flagged_count": 0
+  },
+  "evaluated_tables": [
+    "humanresources.department",
+    "person.address",
+    "production.billofmaterials",
+    "purchasing.productvendor",
+    "sales.countryregioncurrency",
+    "humanresources.employee",
+    "person.addresstype",
+    "production.culture",
+    "purchasing.purchaseorderdetail",
+    "sales.creditcard"
+  ],
+  "per_table": [
+    {
+      "schema": "humanresources",
+      "name": "department",
+      "accuracy": 5,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema by mentioning the unique identifier and using terms like 'modification timestamp' which aligns with 'modifieddate'.",
+      "specificity_reasoning": "The description provides useful detail about the grouping of departments and functional areas, though it could elaborate more on potential use cases.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as related to human resources and organizational structure, which is supported by the schema."
+    },
+    {
+      "schema": "humanresources",
+      "name": "employee",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema by covering employee identity, employment status, and other elements like compensation eligibility and leave balances.",
+      "specificity_reasoning": "The description provides specific details about each column, such as describing 'salariedflag' and the encoding for 'maritalstatus' and 'gender', distinguishing it from other tables.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as human resources and employee management, which aligns with the schema and column names."
+    },
+    {
+      "schema": "person",
+      "name": "address",
+      "accuracy": 5,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, correctly identifying column purposes and properties like primary keys and nullable constraints.",
+      "specificity_reasoning": "The description provides specific details about the table's use in enterprise systems and addresses layout, though 'geographic coordinates' claim is not clearly supported by 'spatiallocation' column information.",
+      "domain_inference_reasoning": "The domain inference is correct, using terminology like ERP and CRM systems, which aligns with the table's structure and purpose."
+    },
+    {
+      "schema": "person",
+      "name": "addresstype",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, correctly identifying the table as defining different types of addresses and mentioning relevant classifications like Billing and Shipping.",
+      "specificity_reasoning": "The description provides detailed insights into the purpose and contents of the table, including examples of address types and functions.",
+      "domain_inference_reasoning": "The description correctly infers that the table is used in contexts like customer relationship management and enterprise data warehousing."
+    },
+    {
+      "schema": "production",
+      "name": "billofmaterials",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, capturing the purpose of each column and their relationships.",
+      "specificity_reasoning": "The description provides detailed explanations for each column, specifying roles like foreign key references and unit measures.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as manufacturing and uses appropriate terminology like 'bill of materials' and 'product assembly'."
+    },
+    {
+      "schema": "production",
+      "name": "culture",
+      "accuracy": 4,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description correctly reflects the schema by identifying cultureid as a culture identifier and providing detail on the other columns, but it assumes cultureid as a language-country pair without explicit schema support.",
+      "specificity_reasoning": "The description provides useful additional context on internationalization and localization which helps distinguish the table's purpose.",
+      "domain_inference_reasoning": "The description accurately infers the table's domain within the context of internationalization and localization, using appropriate terminology."
+    },
+    {
+      "schema": "purchasing",
+      "name": "productvendor",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, detailing the relation between products and vendors and includes descriptions that align with column names and types.",
+      "specificity_reasoning": "The description provides detailed insights into how each column contributes to procurement decisions, including cost details, lead times, and order quantities, distinguishing this table from similar ones.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as procurement and supply chain, using appropriate terminology like vendor management and procurement decisions."
+    },
+    {
+      "schema": "purchasing",
+      "name": "purchaseorderdetail",
+      "accuracy": 5,
+      "specificity": 5,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema, including column functions and relationships.",
+      "specificity_reasoning": "The description provides clear details about the table's purpose and context, making it distinct from other tables.",
+      "domain_inference_reasoning": "The description uses appropriate terminology for the procurement and supply chain domain."
+    },
+    {
+      "schema": "sales",
+      "name": "countryregioncurrency",
+      "accuracy": 5,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately reflects the schema by emphasizing the relationship between country/region codes and currency codes with a timestamp for modifications.",
+      "specificity_reasoning": "The description provides useful details like ISO standards and the concept of currency association modification, adding specificity beyond raw schema data.",
+      "domain_inference_reasoning": "The domain hints are appropriate, suggesting uses in e-commerce, international trade, and localization, which align with the table's structure."
+    },
+    {
+      "schema": "sales",
+      "name": "creditcard",
+      "accuracy": 5,
+      "specificity": 4,
+      "domain_inference": 5,
+      "accuracy_reasoning": "The description accurately describes the schema, including correct interpretations of each column's content and purpose.",
+      "specificity_reasoning": "The description provides specific details such as issuer type and expiration date, but could elaborate on how these connect to transactions.",
+      "domain_inference_reasoning": "The description correctly identifies the domain as related to sales and payment processing, using appropriate terminology."
+    }
+  ]
+}
